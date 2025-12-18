@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FaceAlbum</string>
+    <string name="permission_rationale">FaceAlbum needs access to your photos to find pictures of people you select.</string>
+    <string name="permission_denied">Photo access denied. Please grant permission in Settings to use this app.</string>
+    <string name="grant_access">Grant Access</string>
+    <string name="open_settings">Open Settings</string>
+    <string name="get_started">Get Started</string>
+    <string name="continue_button">Continue</string>
+    <string name="cancel">Cancel</string>
+    <string name="export">Export</string>
+    <string name="start_over">Start Over</string>
+    <string name="selected_format">Selected: %d/%d</string>
+    <string name="processing_format">Processing %d of %d photos</string>
+    <string name="matches_found_format">Found %d matches</string>
+    <string name="export_button_format">Export %d Photos</string>
+    <string name="export_success_format">Exported %d photos to Pictures/FaceAlbums/%s</string>
+    <string name="no_matches_found">No matches found</string>
+    <string name="album_name_hint">Album Name</string>
+    <string name="album_name_default">Person</string>
+</resources>
