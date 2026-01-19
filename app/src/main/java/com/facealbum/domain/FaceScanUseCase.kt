@@ -4,14 +4,18 @@ import android.content.Context
 import android.net.Uri
 import com.facealbum.data.FaceDetectorWrapper
 import com.facealbum.data.FaceEmbedder
+import com.facealbum.data.ModelState
 import com.facealbum.data.PhotoRepository
 import com.facealbum.model.CandidatePhoto
 import com.facealbum.model.PhotoInfo
 import com.facealbum.model.ScanProgress
 import com.facealbum.util.BitmapLoader
 import com.facealbum.util.FacePreprocessor
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import timber.log.Timber
 
 /**
  * Use case for scanning photo library and finding face matches.
@@ -26,23 +30,48 @@ class FaceScanUseCase(private val context: Context) {
     private val embeddingCache = mutableMapOf<Long, FloatArray>()
 
     /**
+     * Get the current state of the face embedding model.
+     */
+    fun getModelState(): ModelState = faceEmbedder.modelState
+
+    /**
+     * Check if the face embedder is ready for use.
+     */
+    fun isModelReady(): Boolean = faceEmbedder.isReady()
+
+    /**
      * Compute embeddings from seed photos.
      *
      * @param seedUris URIs of seed photos selected by user
      * @return List of embeddings from largest face in each seed photo
      */
     suspend fun computeSeedEmbeddings(seedUris: List<Uri>): List<FloatArray> {
+        Timber.d("Computing seed embeddings from ${seedUris.size} photos")
         val embeddings = mutableListOf<FloatArray>()
 
         for (uri in seedUris) {
-            val bitmap = BitmapLoader.loadScaled(context, uri) ?: continue
-            val face = faceDetector.detectLargestFace(bitmap) ?: continue
+            val bitmap = BitmapLoader.loadScaled(context, uri)
+            if (bitmap == null) {
+                Timber.w("Failed to load bitmap for seed: $uri")
+                continue
+            }
+            val face = faceDetector.detectLargestFace(bitmap)
+            if (face == null) {
+                Timber.w("No face found in seed photo: $uri")
+                continue
+            }
             val croppedFace = FacePreprocessor.cropAndPreprocess(bitmap, face.boundingBox)
-            val embedding = faceEmbedder.getEmbedding(croppedFace) ?: continue
+            val embedding = faceEmbedder.getEmbedding(croppedFace)
+            if (embedding == null) {
+                Timber.w("Failed to compute embedding for seed: $uri")
+                continue
+            }
 
             embeddings.add(embedding)
+            Timber.d("Successfully computed embedding for seed photo")
         }
 
+        Timber.i("Computed ${embeddings.size}/${seedUris.size} seed embeddings")
         return embeddings
     }
 
@@ -59,15 +88,22 @@ class FaceScanUseCase(private val context: Context) {
         limit: Int,
         threshold: Float
     ): Flow<Pair<ScanProgress, List<CandidatePhoto>>> = flow {
+        Timber.d("Starting library scan: limit=$limit, threshold=$threshold, seeds=${seedEmbeddings.size}")
+
         if (seedEmbeddings.isEmpty()) {
+            Timber.w("No seed embeddings provided, aborting scan")
             return@flow
         }
 
         // Get recent photos
         val photos = photoRepository.queryRecentPhotos(limit)
+        Timber.i("Found ${photos.size} photos to scan")
         val candidates = mutableListOf<CandidatePhoto>()
 
         photos.forEachIndexed { index, photo ->
+            // Check for cancellation
+            currentCoroutineContext().ensureActive()
+
             // Emit progress
             val progress = ScanProgress(
                 current = index + 1,

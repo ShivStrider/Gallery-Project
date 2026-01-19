@@ -85,7 +85,17 @@ dependencies {
     // ExifInterface for rotation handling
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 
+    // Logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("io.mockk:mockk:1.13.9")
+    testImplementation("com.google.truth:truth:1.2.0")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 }

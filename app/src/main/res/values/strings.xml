@@ -18,4 +18,12 @@
     <string name="no_matches_found">No matches found</string>
     <string name="album_name_hint">Album Name</string>
     <string name="album_name_default">Person</string>
+
+    <!-- Error dialogs -->
+    <string name="ok">OK</string>
+    <string name="no_faces_title">No Faces Detected</string>
+    <string name="no_faces_message">No faces were found in the selected photos. Please try selecting different photos that clearly show faces.</string>
+    <string name="model_error_title">Model Error</string>
+    <string name="scan_error_title">Scan Error</string>
+    <string name="error_generic">Something went wrong. Please try again.</string>
 </resources>

@@ -2,15 +2,15 @@ package com.facealbum.util
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import com.facealbum.config.FaceRecognitionConfig
 
 /**
  * Utility for preprocessing face images for embedding extraction.
  */
 object FacePreprocessor {
 
-    // Most FaceNet models expect 112x112 or 160x160
-    private const val MODEL_INPUT_SIZE = 112
-    private const val FACE_MARGIN_RATIO = 0.2f  // 20% padding around face
+    private val MODEL_INPUT_SIZE = FaceRecognitionConfig.MODEL_INPUT_SIZE
+    private val FACE_MARGIN_RATIO = FaceRecognitionConfig.FACE_MARGIN_RATIO
 
     /**
      * Crop face from bitmap and resize to model input size.

@@ -9,6 +9,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.facealbum.MainViewModel
 import com.facealbum.model.ScanState
+import com.facealbum.ui.components.NoFacesDetectedDialog
+import com.facealbum.ui.components.ScanErrorDialog
 import com.facealbum.ui.screens.*
 
 /**
@@ -62,17 +64,20 @@ fun NavGraph(
         }
 
         composable(Screen.Scanning.route) {
+            var showErrorDialog by remember { mutableStateOf(false) }
+            var errorMessage by remember { mutableStateOf("") }
+
             // Monitor scan state and navigate when complete
             LaunchedEffect(uiState.scanState) {
-                when (uiState.scanState) {
+                when (val state = uiState.scanState) {
                     is ScanState.Complete -> {
                         navController.navigate(Screen.Review.route) {
                             popUpTo(Screen.SeedSelection.route)
                         }
                     }
                     is ScanState.Error -> {
-                        // Handle error - for MVP, just go back
-                        navController.popBackStack()
+                        errorMessage = state.message
+                        showErrorDialog = true
                     }
                     else -> { /* Continue scanning */ }
                 }
@@ -87,6 +92,27 @@ fun NavGraph(
                         navController.popBackStack()
                     }
                 )
+            }
+
+            // Show error dialog
+            if (showErrorDialog) {
+                val isNoFacesError = errorMessage.contains("No faces", ignoreCase = true)
+                if (isNoFacesError) {
+                    NoFacesDetectedDialog(
+                        onDismiss = {
+                            showErrorDialog = false
+                            navController.popBackStack()
+                        }
+                    )
+                } else {
+                    ScanErrorDialog(
+                        errorMessage = errorMessage,
+                        onDismiss = {
+                            showErrorDialog = false
+                            navController.popBackStack()
+                        }
+                    )
+                }
             }
         }
 

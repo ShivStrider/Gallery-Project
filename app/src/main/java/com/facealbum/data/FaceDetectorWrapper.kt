@@ -2,11 +2,13 @@ package com.facealbum.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.facealbum.config.FaceRecognitionConfig
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import timber.log.Timber
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -20,7 +22,7 @@ class FaceDetectorWrapper(context: Context) {
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
-            .setMinFaceSize(0.15f)  // 15% of image width minimum
+            .setMinFaceSize(FaceRecognitionConfig.MIN_FACE_SIZE)
             .build()
     )
 
@@ -35,13 +37,15 @@ class FaceDetectorWrapper(context: Context) {
 
         detector.process(inputImage)
             .addOnSuccessListener { faces ->
+                Timber.d("Face detection completed: found ${faces.size} face(s)")
                 // Return largest face by bounding box area
                 val largest = faces.maxByOrNull {
                     it.boundingBox.width() * it.boundingBox.height()
                 }
                 cont.resume(largest)
             }
-            .addOnFailureListener {
+            .addOnFailureListener { e ->
+                Timber.e(e, "Face detection failed")
                 cont.resume(null)
             }
     }

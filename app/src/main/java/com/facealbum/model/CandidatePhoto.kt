@@ -14,5 +14,5 @@ data class CandidatePhoto(
     val photo: PhotoInfo,
     val similarity: Float,
     val faceRect: Rect? = null,
-    var isApproved: Boolean = true
+    val isApproved: Boolean = true
 )

@@ -6,13 +6,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
+import com.facealbum.config.FaceRecognitionConfig
 
 /**
  * Utility for loading bitmaps with proper scaling and rotation handling.
  */
 object BitmapLoader {
 
-    private const val MAX_DIMENSION = 1024  // Scale down large photos for faster processing
+    private val MAX_DIMENSION = FaceRecognitionConfig.MAX_BITMAP_DIMENSION
 
     /**
      * Load a bitmap from URI with automatic downscaling and EXIF rotation correction.

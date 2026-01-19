@@ -4,17 +4,20 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.facealbum.data.ModelState
 import com.facealbum.data.PhotoRepository
 import com.facealbum.domain.FaceScanUseCase
 import com.facealbum.model.AppUiState
 import com.facealbum.model.CandidatePhoto
 import com.facealbum.model.PhotoInfo
 import com.facealbum.model.ScanState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * Main ViewModel managing the app's state and business logic.
@@ -23,6 +26,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val photoRepository = PhotoRepository(application)
     private val faceScanUseCase = FaceScanUseCase(application)
+
+    private var scanJob: Job? = null
 
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
@@ -39,10 +44,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadRecentPhotos(limit: Int = 100) {
         viewModelScope.launch {
             try {
+                Timber.d("Loading recent photos, limit=$limit")
                 val photos = photoRepository.queryRecentPhotos(limit)
                 _recentPhotos.value = photos
+                Timber.i("Loaded ${photos.size} recent photos")
             } catch (e: Exception) {
-                // Handle error - could add error state to UI
+                Timber.e(e, "Failed to load recent photos")
             }
         }
     }
@@ -70,7 +77,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Start scanning the library with selected seeds.
      */
     fun startScan() {
-        viewModelScope.launch {
+        Timber.d("Starting scan with ${_uiState.value.seedUris.size} seed photos")
+
+        // Check if model is ready before starting
+        val modelState = faceScanUseCase.getModelState()
+        if (modelState is ModelState.Failed) {
+            Timber.e("Cannot start scan: model not ready - ${modelState.reason}")
+            _uiState.update {
+                it.copy(scanState = ScanState.Error(modelState.reason))
+            }
+            return
+        }
+
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
             try {
                 // Compute seed embeddings
                 val seedEmbeddings = faceScanUseCase.computeSeedEmbeddings(
@@ -78,6 +98,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
 
                 if (seedEmbeddings.isEmpty()) {
+                    Timber.w("No faces found in seed photos")
                     _uiState.update {
                         it.copy(
                             scanState = ScanState.Error("No faces found in seed photos")
@@ -103,12 +124,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // Scan complete
+                val finalCandidates = _uiState.value.candidates
+                Timber.i("Scan complete: found ${finalCandidates.size} matches")
                 _uiState.update {
                     it.copy(
                         scanState = ScanState.Complete(it.candidates)
                     )
                 }
             } catch (e: Exception) {
+                Timber.e(e, "Scan failed with error")
                 _uiState.update {
                     it.copy(
                         scanState = ScanState.Error(e.message ?: "Unknown error")
@@ -122,8 +146,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Cancel ongoing scan.
      */
     fun cancelScan() {
-        // The coroutine will be cancelled when viewModelScope is cleared
-        // For now, just reset to idle state
+        Timber.d("Cancelling scan")
+        scanJob?.cancel()
+        scanJob = null
         _uiState.update {
             it.copy(scanState = ScanState.Idle)
         }
