@@ -54,12 +54,12 @@ fun ReviewScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "Found ${candidates.size} matches",
+                        text = stringResource(R.string.matches_found_format, candidates.size),
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Text(
-                        text = "Tap photos to reject false matches",
+                        text = stringResource(R.string.review_subtitle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
@@ -176,7 +176,7 @@ private fun CandidateItem(
 
         // Similarity badge
         Text(
-            text = "${(candidate.similarity * 100).toInt()}%",
+            text = stringResource(R.string.similarity_percent_format, (candidate.similarity * 100).toInt()),
             style = MaterialTheme.typography.labelSmall,
             color = Color.White,
             modifier = Modifier
@@ -190,7 +190,7 @@ private fun CandidateItem(
         if (!candidate.isApproved) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Rejected",
+                contentDescription = stringResource(R.string.candidate_rejected),
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .align(Alignment.Center)

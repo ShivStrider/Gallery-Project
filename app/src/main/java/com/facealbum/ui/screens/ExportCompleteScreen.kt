@@ -34,7 +34,7 @@ fun ExportCompleteScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Success",
+                contentDescription = stringResource(R.string.export_success_icon),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(80.dp)
             )
@@ -42,7 +42,7 @@ fun ExportCompleteScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Export Complete!",
+                text = stringResource(R.string.export_complete_title),
                 style = MaterialTheme.typography.headlineMedium
             )
 
@@ -52,7 +52,7 @@ fun ExportCompleteScreen(
                 text = stringResource(
                     R.string.export_success_format,
                     exportedCount,
-                    albumName.ifBlank { "Person" }
+                    albumName.ifBlank { stringResource(R.string.album_name_default) }
                 ),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
