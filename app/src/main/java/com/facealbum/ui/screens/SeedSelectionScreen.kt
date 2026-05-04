@@ -38,12 +38,12 @@ fun SeedSelectionScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "Select 1-3 photos of the person",
+                        text = stringResource(R.string.seed_selection_title),
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Text(
-                        text = "Choose photos with clear faces from different angles",
+                        text = stringResource(R.string.seed_selection_subtitle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )

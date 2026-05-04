@@ -32,7 +32,7 @@ fun ScanningScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Scanning Photos...",
+                text = stringResource(R.string.scanning_title),
                 style = MaterialTheme.typography.headlineSmall
             )
 
@@ -45,7 +45,7 @@ fun ScanningScreen(
                 ) {
                     AsyncImage(
                         model = uri,
-                        contentDescription = "Current photo",
+                        contentDescription = stringResource(R.string.current_photo),
                         modifier = Modifier.fillMaxSize()
                     )
                 }

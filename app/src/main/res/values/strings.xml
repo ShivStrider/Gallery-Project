@@ -18,6 +18,18 @@
     <string name="no_matches_found">No matches found</string>
     <string name="album_name_hint">Album Name</string>
     <string name="album_name_default">Person</string>
+    <string name="welcome_title">FaceAlbum</string>
+    <string name="welcome_subtitle">Select photos of someone, and we'll find all their photos</string>
+    <string name="seed_selection_title">Select 1-3 photos of the person</string>
+    <string name="seed_selection_subtitle">Choose photos with clear faces from different angles</string>
+    <string name="review_subtitle">Tap photos to reject false matches</string>
+    <string name="candidate_rejected">Rejected</string>
+    <string name="scanning_title">Scanning Photos...</string>
+    <string name="current_photo">Current photo</string>
+    <string name="export_complete_title">Export Complete!</string>
+    <string name="export_success_icon">Success</string>
+    <string name="photo_selected">Selected</string>
+    <string name="similarity_percent_format">%d%%</string>
 
     <!-- Error dialogs -->
     <string name="ok">OK</string>
