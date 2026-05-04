@@ -13,8 +13,10 @@ android {
         applicationId = "com.facealbum"
         minSdk = 26
         targetSdk = 34
+        // Keep versionCode monotonically increasing for every Play upload.
         versionCode = 1
-        versionName = "1.0"
+        // Semantic versioning (MAJOR.MINOR.PATCH) for user-facing releases.
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,7 +26,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
