@@ -339,3 +339,45 @@ Photos never leave your device. All processing happens locally using ML Kit and 
 ---
 
 **Built as a weekend MVP project demonstrating on-device ML, Jetpack Compose, and modern Android architecture.**
+
+
+## Release Build & Distribution
+
+### 1) Release optimization policy
+- `release` builds must keep `isMinifyEnabled = true` and `isShrinkResources = true` in `app/build.gradle.kts`.
+- Any shrink-related regression must be fixed by updating `app/proguard-rules.pro` (never by disabling minification for release).
+
+### 2) ProGuard/R8 maintenance rules
+- Maintain explicit keep rules for reflection-sensitive surfaces:
+  - ML Kit (`com.google.mlkit.*`)
+  - TensorFlow Lite (`org.tensorflow.lite.*`)
+  - Jetpack Compose/Kotlin metadata where required by tooling or reflection.
+- Validate by running a release smoke test on a signed release artifact before shipping.
+
+### 3) Secure signing workflow (keystore outside repo)
+- Never commit keystore files or plaintext signing passwords.
+- Configure signing from environment/CI secrets only (example env vars):
+  - `ANDROID_KEYSTORE_BASE64`
+  - `ANDROID_KEYSTORE_PASSWORD`
+  - `ANDROID_KEY_ALIAS`
+  - `ANDROID_KEY_PASSWORD`
+- CI should decode keystore at runtime, sign `release` builds, then securely delete temporary keystore files.
+
+### 4) Versioning process
+- `versionCode` must increment for every distributable release build.
+- `versionName` follows semantic versioning: `MAJOR.MINOR.PATCH`.
+  - `PATCH`: bugfixes/internal changes with no feature behavior change.
+  - `MINOR`: backward-compatible feature additions.
+  - `MAJOR`: incompatible UX/behavior changes.
+
+### 5) CI artifact archival
+For every release pipeline run, publish and retain:
+- Signed `.aab` (required)
+- Optional signed universal `.apk` (if generated)
+- `mapping.txt` from R8/ProGuard
+- SHA-256 checksums for every artifact
+- Build metadata (`git sha`, `versionCode`, `versionName`, build timestamp)
+
+### 6) Release acceptance criteria
+- CI produces a signed release AAB successfully.
+- Smoke test on the release build confirms no runtime regressions from shrinking/obfuscation.
