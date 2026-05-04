@@ -9,11 +9,25 @@ import android.provider.MediaStore
 import com.facealbum.model.PhotoInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * Repository for accessing device photos via MediaStore.
  */
 class PhotoRepository(private val context: Context) {
+
+    sealed class CopyToAlbumResult {
+        data class Success(val uri: Uri) : CopyToAlbumResult()
+        data class Failure(val error: CopyToAlbumError) : CopyToAlbumResult()
+    }
+
+    enum class CopyToAlbumError {
+        INSERT_FAILED,
+        SOURCE_OPEN_FAILED,
+        DESTINATION_OPEN_FAILED,
+        COPY_FAILED,
+        FINALIZE_FAILED
+    }
 
     /**
      * Query the most recent photos from the device.
@@ -66,50 +80,87 @@ class PhotoRepository(private val context: Context) {
         photos
     }
 
+    suspend fun copyToAlbum(sourceUri: Uri, albumName: String, originalFileName: String): Uri? {
+        return when (val result = copyToAlbumWithResult(sourceUri, albumName, originalFileName)) {
+            is CopyToAlbumResult.Success -> result.uri
+            is CopyToAlbumResult.Failure -> null
+        }
+    }
+
     /**
-     * Copy a photo to the FaceAlbums folder.
-     *
-     * @param sourceUri URI of the source photo
-     * @param albumName Name of the album (subfolder)
-     * @param originalFileName Original filename
-     * @return URI of the copied file, or null if copy failed
+     * Copy a photo to the FaceAlbums folder with explicit success/failure state.
      */
-    suspend fun copyToAlbum(
+    suspend fun copyToAlbumWithResult(
         sourceUri: Uri,
         albumName: String,
         originalFileName: String
-    ): Uri? = withContext(Dispatchers.IO) {
+    ): CopyToAlbumResult = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
         val relativePath = "${Environment.DIRECTORY_PICTURES}/FaceAlbums/$albumName"
+        val mimeType = resolver.getType(sourceUri) ?: deriveMimeTypeFromFileName(originalFileName)
+        val uniqueName = makeUniqueDisplayName(originalFileName)
 
         val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, originalFileName)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.DISPLAY_NAME, uniqueName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
 
-        val resolver = context.contentResolver
         val destUri = resolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             contentValues
-        ) ?: return@withContext null
+        ) ?: return@withContext CopyToAlbumResult.Failure(CopyToAlbumError.INSERT_FAILED)
 
         try {
-            resolver.openInputStream(sourceUri)?.use { input ->
-                resolver.openOutputStream(destUri)?.use { output ->
-                    input.copyTo(output)
+            val input = resolver.openInputStream(sourceUri)
+                ?: throw CopyFailureException(CopyToAlbumError.SOURCE_OPEN_FAILED)
+            input.use { source ->
+                val output = resolver.openOutputStream(destUri)
+                    ?: throw CopyFailureException(CopyToAlbumError.DESTINATION_OPEN_FAILED)
+                output.use { sink ->
+                    source.copyTo(sink)
                 }
             }
 
-            // Mark as complete
-            contentValues.clear()
-            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(destUri, contentValues, null, null)
+            val complete = ContentValues().apply {
+                put(MediaStore.Images.Media.IS_PENDING, 0)
+            }
+            val rowsUpdated = resolver.update(destUri, complete, null, null)
+            if (rowsUpdated <= 0) {
+                throw CopyFailureException(CopyToAlbumError.FINALIZE_FAILED)
+            }
 
-            destUri
+            CopyToAlbumResult.Success(destUri)
+        } catch (e: CopyFailureException) {
+            resolver.delete(destUri, null, null)
+            CopyToAlbumResult.Failure(e.error)
+        } catch (e: IOException) {
+            resolver.delete(destUri, null, null)
+            CopyToAlbumResult.Failure(CopyToAlbumError.COPY_FAILED)
         } catch (e: Exception) {
             resolver.delete(destUri, null, null)
-            null
+            CopyToAlbumResult.Failure(CopyToAlbumError.COPY_FAILED)
         }
     }
+
+    private fun makeUniqueDisplayName(originalFileName: String): String {
+        val dot = originalFileName.lastIndexOf('.')
+        val base = if (dot > 0) originalFileName.substring(0, dot) else originalFileName
+        val ext = if (dot > 0) originalFileName.substring(dot) else ""
+        return "${base}_${System.currentTimeMillis()}$ext"
+    }
+
+    private fun deriveMimeTypeFromFileName(fileName: String): String {
+        return when (fileName.substringAfterLast('.', "").lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "webp" -> "image/webp"
+            else -> "image/jpeg"
+        }
+    }
+
+    private class CopyFailureException(val error: CopyToAlbumError) : RuntimeException()
 }
