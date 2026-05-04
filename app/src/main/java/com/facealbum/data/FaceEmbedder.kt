@@ -3,6 +3,7 @@ package com.facealbum.data
 import android.content.Context
 import android.graphics.Bitmap
 import com.facealbum.config.FaceRecognitionConfig
+import com.facealbum.telemetry.CrashReporter
 import com.facealbum.util.FacePreprocessor
 import org.tensorflow.lite.Interpreter
 import timber.log.Timber
@@ -50,6 +51,11 @@ class FaceEmbedder(private val context: Context) {
             Timber.i("Face embedding model loaded successfully")
         } catch (e: Exception) {
             Timber.e(e, "Failed to load face embedding model")
+            CrashReporter.recordNonFatal(
+                throwable = e,
+                source = "model_load",
+                context = mapOf("model_asset" to FaceRecognitionConfig.MODEL_FILE_NAME)
+            )
             modelState = ModelState.Failed(
                 when {
                     e.message?.contains(FaceRecognitionConfig.MODEL_FILE_NAME) == true ->

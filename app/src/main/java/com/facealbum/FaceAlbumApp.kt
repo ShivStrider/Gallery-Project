@@ -1,6 +1,7 @@
 package com.facealbum
 
 import android.app.Application
+import com.facealbum.telemetry.CrashReporter
 import timber.log.Timber
 
 /**
@@ -16,6 +17,10 @@ class FaceAlbumApp : Application() {
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+
+        // Internal builds collect crash reports for triage.
+        val isInternalBuild = BuildConfig.DEBUG
+        CrashReporter.initialize(isInternalBuild)
 
         Timber.d("FaceAlbum application initialized")
     }

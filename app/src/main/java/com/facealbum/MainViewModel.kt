@@ -11,6 +11,7 @@ import com.facealbum.model.AppUiState
 import com.facealbum.model.CandidatePhoto
 import com.facealbum.model.PhotoInfo
 import com.facealbum.model.ScanState
+import com.facealbum.telemetry.CrashReporter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -133,6 +134,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Scan failed with error")
+                CrashReporter.recordNonFatal(
+                    throwable = e,
+                    source = "scan",
+                    context = mapOf(
+                        "seed_count" to _uiState.value.seedUris.size.toString(),
+                        "threshold" to _uiState.value.similarityThreshold.toString(),
+                        "max_scan" to _uiState.value.maxPhotosToScan.toString()
+                    )
+                )
                 _uiState.update {
                     it.copy(
                         scanState = ScanState.Error(e.message ?: "Unknown error")
@@ -195,6 +205,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (result != null) {
                     successCount++
+                } else {
+                    CrashReporter.recordNonFatal(
+                        throwable = IllegalStateException("Export copy returned null"),
+                        source = "export",
+                        context = mapOf(
+                            "album_name_length" to albumName.length.toString(),
+                            "approved_count" to approvedPhotos.size.toString()
+                        )
+                    )
                 }
             }
 
