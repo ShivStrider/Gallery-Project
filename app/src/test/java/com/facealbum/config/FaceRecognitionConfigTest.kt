@@ -24,8 +24,15 @@ class FaceRecognitionConfigTest {
     }
 
     @Test
-    fun `default max photos is positive`() {
-        assertThat(FaceRecognitionConfig.DEFAULT_MAX_PHOTOS).isGreaterThan(0)
+    fun `cluster thresholds are sane`() {
+        val assign = FaceRecognitionConfig.CLUSTER_ASSIGN_THRESHOLD
+        val merge = FaceRecognitionConfig.CLUSTER_MERGE_THRESHOLD
+        assertThat(assign).isAtLeast(0f)
+        assertThat(assign).isAtMost(1f)
+        assertThat(merge).isAtLeast(0f)
+        assertThat(merge).isAtMost(1f)
+        assertThat(merge).isGreaterThan(assign)
+        assertThat(FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE).isAtLeast(1)
     }
 
     @Test

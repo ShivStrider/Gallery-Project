@@ -14,5 +14,6 @@ data class PhotoInfo(
     val id: Long,
     val uri: Uri,
     val dateTaken: Long,
-    val displayName: String
+    val displayName: String,
+    val dateModified: Long = 0L
 )

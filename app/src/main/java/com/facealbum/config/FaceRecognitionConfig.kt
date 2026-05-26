@@ -1,7 +1,7 @@
 package com.facealbum.config
 
 /**
- * Centralized configuration for face recognition parameters.
+ * Centralized configuration for face recognition + clustering parameters.
  */
 object FaceRecognitionConfig {
     /** Input size expected by the face embedding model (pixels) */
@@ -12,9 +12,6 @@ object FaceRecognitionConfig {
 
     /** Default similarity threshold for face matching (0.0 to 1.0) */
     const val DEFAULT_SIMILARITY_THRESHOLD = 0.6f
-
-    /** Default maximum number of photos to scan */
-    const val DEFAULT_MAX_PHOTOS = 500
 
     /** Maximum dimension for scaled bitmaps (for memory efficiency) */
     const val MAX_BITMAP_DIMENSION = 1024
@@ -30,4 +27,16 @@ object FaceRecognitionConfig {
 
     /** Model file name in assets folder */
     const val MODEL_FILE_NAME = "mobile_face_net.tflite"
+
+    /** Similarity above which a new face is assigned to an existing cluster */
+    const val CLUSTER_ASSIGN_THRESHOLD = 0.6f
+
+    /** Centroid similarity above which two clusters are merged in a periodic pass */
+    const val CLUSTER_MERGE_THRESHOLD = 0.75f
+
+    /** Minimum cluster size before it shows up in the People grid */
+    const val DEFAULT_MIN_CLUSTER_SIZE = 3
+
+    /** Hard cap on photos processed per scan batch (prevents runaway memory use) */
+    const val SCAN_BATCH_SIZE = 200
 }

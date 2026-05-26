@@ -1,41 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FaceAlbum</string>
-    <string name="permission_rationale">FaceAlbum needs access to your photos to find pictures of people you select.</string>
+    <string name="permission_rationale">FaceAlbum needs access to your photos to find faces and group them into albums — all on-device.</string>
     <string name="permission_denied">Photo access denied. Please grant permission in Settings to use this app.</string>
     <string name="grant_access">Grant Access</string>
     <string name="open_settings">Open Settings</string>
-    <string name="get_started">Get Started</string>
-    <string name="continue_button">Continue</string>
     <string name="cancel">Cancel</string>
     <string name="export">Export</string>
-    <string name="start_over">Start Over</string>
-    <string name="selected_format">Selected: %d/%d</string>
-    <string name="processing_format">Processing %d of %d photos</string>
-    <string name="matches_found_format">Found %d matches</string>
-    <string name="export_button_format">Export %d Photos</string>
-    <string name="export_success_format">Exported %d photos to Pictures/FaceAlbums/%s</string>
-    <string name="no_matches_found">No matches found</string>
-    <string name="album_name_hint">Album Name</string>
+    <string name="start_over">Done</string>
+    <string name="album_name_hint">Album name</string>
     <string name="album_name_default">Person</string>
     <string name="welcome_title">FaceAlbum</string>
-    <string name="welcome_subtitle">Select photos of someone, and we'll find all their photos</string>
-    <string name="seed_selection_title">Select 1-3 photos of the person</string>
-    <string name="seed_selection_subtitle">Choose photos with clear faces from different angles</string>
-    <string name="review_subtitle">Tap photos to reject false matches</string>
-    <string name="candidate_rejected">Rejected</string>
-    <string name="scanning_title">Scanning Photos...</string>
-    <string name="current_photo">Current photo</string>
-    <string name="export_complete_title">Export Complete!</string>
+    <string name="welcome_subtitle">Group photos by face — all on your device. No upload, no account.</string>
+    <string name="export_complete_title">Export Complete</string>
     <string name="export_success_icon">Success</string>
-    <string name="photo_selected">Selected</string>
-    <string name="similarity_percent_format">%d%%</string>
+    <string name="export_success_format">Exported %1$d photos to Pictures/FaceAlbums/%2$s</string>
 
-    <!-- Error dialogs -->
+    <!-- Errors -->
     <string name="ok">OK</string>
-    <string name="no_faces_title">No Faces Detected</string>
-    <string name="no_faces_message">No faces were found in the selected photos. Please try selecting different photos that clearly show faces.</string>
-    <string name="model_error_title">Model Error</string>
-    <string name="scan_error_title">Scan Error</string>
-    <string name="error_generic">Something went wrong. Please try again.</string>
+
+    <!-- Indexing notification -->
+    <string name="notif_channel_indexing">Face indexing</string>
+    <string name="notif_title_indexing">Finding faces in your photos</string>
+    <string name="notif_text_starting">Starting…</string>
+    <string name="notif_text_progress">Scanned %1$d of %2$d photos</string>
+
+    <!-- People / cluster screens -->
+    <string name="people_title">People</string>
+    <string name="people_empty_title">No people yet</string>
+    <string name="people_empty_subtitle">Tap Scan to find faces in your photos.</string>
+    <string name="people_unnamed">Unnamed</string>
+    <string name="people_face_count_format">%d faces</string>
+    <string name="people_scan_now">Scan</string>
+    <string name="people_scanning_progress">Scanning %1$d / %2$d · %3$d faces</string>
+    <string name="people_open_settings">Open settings</string>
+    <string name="cluster_detail_back">Back</string>
+    <string name="cluster_detail_rename">Rename</string>
+    <string name="cluster_detail_export">Export album</string>
+    <string name="cluster_detail_merge">Merge with…</string>
+    <string name="cluster_detail_merge_empty">No other people to merge with yet.</string>
+    <string name="cluster_detail_rename_hint">Person name</string>
+    <string name="cluster_detail_save">Save</string>
+    <string name="cluster_default_name_format">Person %d</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_min_cluster_size">Minimum cluster size</string>
+    <string name="settings_rescan_all">Re-scan entire library</string>
+    <string name="settings_delete_index">Delete face index</string>
+    <string name="settings_delete_index_body">This removes all face data on this device. Exported albums remain.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_body">FaceAlbum runs entirely on your device. Face detection by Google ML Kit. Face recognition by MobileFaceNet.</string>
 </resources>

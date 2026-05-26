@@ -27,32 +27,29 @@ class FaceDetectorWrapper(context: Context) {
     )
 
     /**
-     * Detect the largest face in a bitmap.
-     *
-     * @param bitmap Image to process
-     * @return The largest detected face, or null if no face found
+     * Detect all faces in a bitmap.
      */
-    suspend fun detectLargestFace(bitmap: Bitmap): Face? = suspendCoroutine { cont ->
+    suspend fun detectAllFaces(bitmap: Bitmap): List<Face> = suspendCoroutine { cont ->
         val inputImage = InputImage.fromBitmap(bitmap, 0)
-
         detector.process(inputImage)
             .addOnSuccessListener { faces ->
                 Timber.d("Face detection completed: found ${faces.size} face(s)")
-                // Return largest face by bounding box area
-                val largest = faces.maxByOrNull {
-                    it.boundingBox.width() * it.boundingBox.height()
-                }
-                cont.resume(largest)
+                cont.resume(faces)
             }
             .addOnFailureListener { e ->
                 Timber.e(e, "Face detection failed")
-                cont.resume(null)
+                cont.resume(emptyList())
             }
     }
 
     /**
-     * Release detector resources when done.
+     * Detect the largest face in a bitmap (kept for callers that only care about one).
      */
+    suspend fun detectLargestFace(bitmap: Bitmap): Face? =
+        detectAllFaces(bitmap).maxByOrNull {
+            it.boundingBox.width() * it.boundingBox.height()
+        }
+
     fun close() {
         detector.close()
     }
