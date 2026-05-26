@@ -36,22 +36,43 @@ class PhotoRepository(private val context: Context) {
      * @return List of photo information, sorted by date taken (newest first)
      */
     suspend fun queryRecentPhotos(limit: Int): List<PhotoInfo> = withContext(Dispatchers.IO) {
-        val photos = mutableListOf<PhotoInfo>()
+        queryPhotos(
+            selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ?",
+            selectionArgs = arrayOf("image/%"),
+            sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC LIMIT $limit"
+        )
+    }
 
+    /**
+     * Query every image in MediaStore that was added or modified after [sinceDateModifiedSec].
+     * `dateModified` is in seconds since epoch (MediaStore convention).
+     *
+     * Passing 0 returns the entire library — used for the first full index.
+     */
+    suspend fun queryPhotosModifiedSince(sinceDateModifiedSec: Long): List<PhotoInfo> =
+        withContext(Dispatchers.IO) {
+            queryPhotos(
+                selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ? AND " +
+                    "${MediaStore.Images.Media.DATE_MODIFIED} > ?",
+                selectionArgs = arrayOf("image/%", sinceDateModifiedSec.toString()),
+                sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} ASC"
+            )
+        }
+
+    private fun queryPhotos(
+        selection: String,
+        selectionArgs: Array<String>,
+        sortOrder: String
+    ): List<PhotoInfo> {
+        val photos = mutableListOf<PhotoInfo>()
         val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
 
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
             MediaStore.Images.Media.DATE_TAKEN,
-            MediaStore.Images.Media.DATE_ADDED
+            MediaStore.Images.Media.DATE_MODIFIED
         )
-
-        val selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ?"
-        val selectionArgs = arrayOf("image/%")
-
-        // Sort by DATE_TAKEN descending
-        val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC LIMIT $limit"
 
         context.contentResolver.query(
             collection,
@@ -62,7 +83,8 @@ class PhotoRepository(private val context: Context) {
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val takenCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val modCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
@@ -70,14 +92,14 @@ class PhotoRepository(private val context: Context) {
                     PhotoInfo(
                         id = id,
                         uri = ContentUris.withAppendedId(collection, id),
-                        dateTaken = cursor.getLong(dateCol),
-                        displayName = cursor.getString(nameCol)
+                        dateTaken = cursor.getLong(takenCol),
+                        displayName = cursor.getString(nameCol),
+                        dateModified = cursor.getLong(modCol)
                     )
                 )
             }
         }
-
-        photos
+        return photos
     }
 
     suspend fun copyToAlbum(sourceUri: Uri, albumName: String, originalFileName: String): Uri? {

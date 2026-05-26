@@ -1,19 +1,25 @@
 TFLite Model Placeholder
 ========================
 
-For the app to work, you need to add a FaceNet/MobileFaceNet model file here:
-- Filename: mobile_face_net.tflite
-- Expected output: 512-dimensional embedding
-- Input size: 112x112x3 (RGB image normalized to [-1, 1])
+The face-clustering pipeline requires a MobileFaceNet TFLite model at:
 
-Recommended models:
-1. MobileFaceNet (~5MB) - Good accuracy/speed balance
-2. FaceNet (larger, ~90MB) - Higher accuracy but slower
+    app/src/main/assets/mobile_face_net.tflite
 
-You can find these models on:
-- TensorFlow Hub
-- GitHub repositories for face recognition
+Required contract (matches FaceRecognitionConfig + FaceEmbedder):
+  - Input  : 1 x 112 x 112 x 3 float32, normalized to [-1, 1]
+  - Output : 1 x 512 float32
 
-For development/testing without a model:
-- The app will detect this and handle gracefully
-- Face detection will still work, but similarity matching will be disabled
+Recommended source (license-clean):
+  - sirius-ai/MobileFaceNet_TF — MIT, exports to .tflite
+    https://github.com/sirius-ai/MobileFaceNet_TF
+  - Insightface mobilefacenet ONNX -> convert via tf2onnx + tflite converter.
+
+After downloading, drop the file at the path above and record SHA-256 below.
+
+    Filename : mobile_face_net.tflite
+    SHA-256  : <fill in after adding>
+    Size     : ~5 MB
+    License  : Apache 2.0 / MIT (per source)
+
+The app degrades gracefully if the model is missing — face detection still
+runs but clustering is skipped and the indexer fails with a clear error.

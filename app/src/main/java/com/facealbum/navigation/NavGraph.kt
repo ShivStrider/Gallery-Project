@@ -1,40 +1,50 @@
 package com.facealbum.navigation
 
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.facealbum.MainViewModel
-import com.facealbum.model.ScanState
-import com.facealbum.ui.components.NoFacesDetectedDialog
-import com.facealbum.ui.components.ScanErrorDialog
-import com.facealbum.ui.screens.*
+import com.facealbum.ui.screens.ClusterDetailScreen
+import com.facealbum.ui.screens.ExportCompleteScreen
+import com.facealbum.ui.screens.PeopleScreen
+import com.facealbum.ui.screens.SettingsScreen
+import com.facealbum.ui.screens.WelcomeScreen
 
-/**
- * Navigation routes
- */
 sealed class Screen(val route: String) {
     object Welcome : Screen("welcome")
-    object SeedSelection : Screen("seed_selection")
-    object Scanning : Screen("scanning")
-    object Review : Screen("review")
+    object People : Screen("people")
+    object ClusterDetail : Screen("cluster/{clusterId}") {
+        fun build(id: Long) = "cluster/$id"
+        const val ARG = "clusterId"
+    }
+    object Settings : Screen("settings")
     object ExportComplete : Screen("export_complete")
 }
 
-/**
- * Main navigation graph
- */
 @Composable
 fun NavGraph(
     navController: NavHostController,
     viewModel: MainViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val recentPhotos by viewModel.recentPhotos.collectAsState()
-    val exportedCount by viewModel.exportedCount.collectAsState()
+    val clusters by viewModel.clusters.collectAsState()
+    val indexProgress by viewModel.indexProgress.collectAsState()
+    val selectedCluster by viewModel.selectedCluster.collectAsState()
+    val lastExportResult by viewModel.lastExportResult.collectAsState()
+    val minClusterSize by viewModel.minClusterSize.collectAsState()
+
+    // Listen for one-shot export completions globally so any screen can react.
+    LaunchedEffect(Unit) {
+        viewModel.exportEvents.collect {
+            navController.navigate(Screen.ExportComplete.route)
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -43,103 +53,62 @@ fun NavGraph(
         composable(Screen.Welcome.route) {
             WelcomeScreen(
                 onPermissionGranted = {
-                    viewModel.loadRecentPhotos(limit = 100)
-                    navController.navigate(Screen.SeedSelection.route) {
+                    viewModel.startIndex(forceFullRescan = false)
+                    navController.navigate(Screen.People.route) {
                         popUpTo(Screen.Welcome.route) { inclusive = true }
                     }
                 }
             )
         }
 
-        composable(Screen.SeedSelection.route) {
-            SeedSelectionScreen(
-                photos = recentPhotos,
-                selectedUris = uiState.seedUris,
-                onToggleSelection = { uri -> viewModel.toggleSeedSelection(uri) },
-                onContinue = {
-                    viewModel.startScan()
-                    navController.navigate(Screen.Scanning.route)
-                }
+        composable(Screen.People.route) {
+            PeopleScreen(
+                clusters = clusters,
+                indexProgress = indexProgress,
+                onClusterClick = { id ->
+                    viewModel.loadCluster(id)
+                    navController.navigate(Screen.ClusterDetail.build(id))
+                },
+                onScanNow = { viewModel.startIndex(forceFullRescan = false) },
+                onOpenSettings = { navController.navigate(Screen.Settings.route) }
             )
         }
 
-        composable(Screen.Scanning.route) {
-            var showErrorDialog by remember { mutableStateOf(false) }
-            var errorMessage by remember { mutableStateOf("") }
-
-            // Monitor scan state and navigate when complete
-            LaunchedEffect(uiState.scanState) {
-                when (val state = uiState.scanState) {
-                    is ScanState.Complete -> {
-                        navController.navigate(Screen.Review.route) {
-                            popUpTo(Screen.SeedSelection.route)
-                        }
-                    }
-                    is ScanState.Error -> {
-                        errorMessage = state.message
-                        showErrorDialog = true
-                    }
-                    else -> { /* Continue scanning */ }
-                }
-            }
-
-            val scanState = uiState.scanState
-            if (scanState is ScanState.Scanning) {
-                ScanningScreen(
-                    progress = scanState.progress,
-                    onCancel = {
-                        viewModel.cancelScan()
-                        navController.popBackStack()
-                    }
+        composable(
+            route = Screen.ClusterDetail.route,
+            arguments = listOf(navArgument(Screen.ClusterDetail.ARG) { type = NavType.LongType })
+        ) { backStackEntry ->
+            val clusterId = backStackEntry.arguments?.getLong(Screen.ClusterDetail.ARG) ?: -1L
+            val state = selectedCluster
+            if (state != null && state.clusterId == clusterId) {
+                ClusterDetailScreen(
+                    state = state,
+                    mergeCandidates = viewModel.pickAvailableMergeTargets(clusterId),
+                    onBack = { navController.popBackStack() },
+                    onRename = { name -> viewModel.renameCluster(clusterId, name) },
+                    onExport = { albumName -> viewModel.exportCluster(clusterId, albumName) },
+                    onMerge = { intoId -> viewModel.mergeClusters(clusterId, intoId) }
                 )
-            }
-
-            // Show error dialog
-            if (showErrorDialog) {
-                val isNoFacesError = errorMessage.contains("No faces", ignoreCase = true)
-                if (isNoFacesError) {
-                    NoFacesDetectedDialog(
-                        onDismiss = {
-                            showErrorDialog = false
-                            navController.popBackStack()
-                        }
-                    )
-                } else {
-                    ScanErrorDialog(
-                        errorMessage = errorMessage,
-                        onDismiss = {
-                            showErrorDialog = false
-                            navController.popBackStack()
-                        }
-                    )
-                }
             }
         }
 
-        composable(Screen.Review.route) {
-            ReviewScreen(
-                candidates = uiState.candidates,
-                albumName = uiState.albumName,
-                onAlbumNameChange = { name -> viewModel.setAlbumName(name) },
-                onToggleApproval = { photoId -> viewModel.toggleCandidateApproval(photoId) },
-                onExport = {
-                    viewModel.exportPhotos()
-                    navController.navigate(Screen.ExportComplete.route) {
-                        popUpTo(Screen.Welcome.route)
-                    }
-                }
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                minClusterSize = minClusterSize,
+                onMinClusterSizeChange = viewModel::setMinClusterSize,
+                onRescanAll = { viewModel.startIndex(forceFullRescan = true) },
+                onDeleteIndex = { viewModel.clearIndex() },
+                onBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.ExportComplete.route) {
+            val result = lastExportResult
             ExportCompleteScreen(
-                exportedCount = exportedCount,
-                albumName = uiState.albumName,
+                exportedCount = result?.successCount ?: 0,
+                albumName = result?.albumName ?: "",
                 onStartOver = {
-                    viewModel.reset()
-                    navController.navigate(Screen.SeedSelection.route) {
-                        popUpTo(Screen.Welcome.route)
-                    }
+                    navController.popBackStack(Screen.People.route, inclusive = false)
                 }
             )
         }

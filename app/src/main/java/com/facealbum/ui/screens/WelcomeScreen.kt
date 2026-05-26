@@ -2,7 +2,9 @@ package com.facealbum.ui.screens
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,35 +18,34 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import android.content.pm.PackageManager
 import com.facealbum.R
 
+private val photoPermission: String =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
 /**
- * Welcome screen that handles permission request.
+ * First-run screen: explain why we need photo access, request it.
  */
 @Composable
-fun WelcomeScreen(
-    onPermissionGranted: () -> Unit
-) {
+fun WelcomeScreen(onPermissionGranted: () -> Unit) {
     val context = LocalContext.current
     var showPermissionDenied by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            onPermissionGranted()
-        } else {
-            showPermissionDenied = true
-        }
+        if (granted) onPermissionGranted() else showPermissionDenied = true
     }
 
-    // Check permission on launch
     LaunchedEffect(Unit) {
-        val permission = Manifest.permission.READ_MEDIA_IMAGES
-        when (ContextCompat.checkSelfPermission(context, permission)) {
-            PackageManager.PERMISSION_GRANTED -> onPermissionGranted()
-            else -> { /* Wait for user action */ }
+        if (ContextCompat.checkSelfPermission(context, photoPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            onPermissionGranted()
         }
     }
 
@@ -53,9 +54,7 @@ fun WelcomeScreen(
         color = MaterialTheme.colorScheme.background
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -64,15 +63,12 @@ fun WelcomeScreen(
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-
             Spacer(modifier = Modifier.height(16.dp))
-
             Text(
                 text = stringResource(R.string.welcome_subtitle),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
             )
-
             Spacer(modifier = Modifier.height(32.dp))
 
             if (showPermissionDenied) {
@@ -82,17 +78,13 @@ fun WelcomeScreen(
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.error
                 )
-
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        }
-                        context.startActivity(intent)
+                Button(onClick = {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
                     }
-                ) {
+                    context.startActivity(intent)
+                }) {
                     Text(stringResource(R.string.open_settings))
                 }
             } else {
@@ -101,14 +93,8 @@ fun WelcomeScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = {
-                        permissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-                    }
-                ) {
+                Button(onClick = { permissionLauncher.launch(photoPermission) }) {
                     Text(stringResource(R.string.grant_access))
                 }
             }

@@ -1,244 +1,181 @@
 package com.facealbum
 
 import android.app.Application
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.facealbum.data.ModelState
-import com.facealbum.data.PhotoRepository
-import com.facealbum.domain.FaceScanUseCase
-import com.facealbum.model.AppUiState
-import com.facealbum.model.CandidatePhoto
-import com.facealbum.model.PhotoInfo
-import com.facealbum.model.ScanState
-import com.facealbum.telemetry.CrashReporter
-import kotlinx.coroutines.Job
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import com.facealbum.config.FaceRecognitionConfig
+import com.facealbum.data.db.ClusterSummary
+import com.facealbum.data.db.FaceAlbumDatabase
+import com.facealbum.data.db.PhotoEntity
+import com.facealbum.domain.ClusterAlbumExportUseCase
+import com.facealbum.domain.FaceClusterer
+import com.facealbum.work.FaceIndexWorker
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * Main ViewModel managing the app's state and business logic.
+ * Top-level state holder for the face-clustering UI.
+ *
+ * The library is indexed by [FaceIndexWorker] (a foreground service). Live
+ * progress is read off WorkManager's `Flow<WorkInfo>`. Clusters live in Room
+ * and surface through [ClusterDao.summariesAtLeast] so the People grid stays
+ * in sync as the worker writes new faces.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val photoRepository = PhotoRepository(application)
-    private val faceScanUseCase = FaceScanUseCase(application)
+    private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
+    private val clusterer = FaceClusterer(db.clusterDao(), db.faceDao())
+    private val exportUseCase = ClusterAlbumExportUseCase(application)
 
-    private var scanJob: Job? = null
+    private val _minClusterSize = MutableStateFlow(FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE)
+    val minClusterSize: StateFlow<Int> = _minClusterSize.asStateFlow()
 
-    private val _uiState = MutableStateFlow(AppUiState())
-    val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val clusters: StateFlow<List<ClusterSummary>> =
+        _minClusterSize
+            .flatMapLatest { min -> db.clusterDao().summariesAtLeast(min) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _recentPhotos = MutableStateFlow<List<PhotoInfo>>(emptyList())
-    val recentPhotos: StateFlow<List<PhotoInfo>> = _recentPhotos.asStateFlow()
+    data class IndexProgress(
+        val running: Boolean,
+        val done: Int,
+        val total: Int,
+        val faces: Int,
+        val clusters: Int,
+        val errorMessage: String? = null
+    )
 
-    private val _exportedCount = MutableStateFlow(0)
-    val exportedCount: StateFlow<Int> = _exportedCount.asStateFlow()
+    private val workFlow: Flow<List<WorkInfo>> =
+        WorkManager.getInstance(application)
+            .getWorkInfosForUniqueWorkFlow(FaceIndexWorker.UNIQUE_WORK_NAME)
+
+    val indexProgress: StateFlow<IndexProgress> = workFlow
+        .map { infos ->
+            val info = infos.firstOrNull()
+                ?: return@map IndexProgress(false, 0, 0, 0, 0)
+            val data = if (info.state.isFinished) info.outputData else info.progress
+            val running = info.state == WorkInfo.State.RUNNING ||
+                info.state == WorkInfo.State.ENQUEUED
+            IndexProgress(
+                running = running,
+                done = data.getInt(FaceIndexWorker.KEY_PROGRESS_DONE, 0),
+                total = data.getInt(FaceIndexWorker.KEY_PROGRESS_TOTAL, 0),
+                faces = data.getInt(FaceIndexWorker.KEY_PROGRESS_FACES, 0),
+                clusters = data.getInt(FaceIndexWorker.KEY_PROGRESS_CLUSTERS, 0),
+                errorMessage = if (info.state == WorkInfo.State.FAILED)
+                    info.outputData.getString(FaceIndexWorker.KEY_ERROR_MESSAGE)
+                else null
+            )
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            IndexProgress(false, 0, 0, 0, 0)
+        )
+
+    private val _selectedCluster = MutableStateFlow<ClusterDetailState?>(null)
+    val selectedCluster: StateFlow<ClusterDetailState?> = _selectedCluster.asStateFlow()
+
+    data class ClusterDetailState(
+        val clusterId: Long,
+        val displayName: String?,
+        val photos: List<PhotoEntity>
+    )
 
     /**
-     * Load recent photos for seed selection.
+     * One-shot export-completed signal. We use a `SharedFlow` rather than a
+     * `StateFlow<Result?>` so navigating back to a cluster detail screen after a
+     * successful export does not re-trigger navigation to ExportComplete.
      */
-    fun loadRecentPhotos(limit: Int = 100) {
+    private val _exportEvents = MutableSharedFlow<ClusterAlbumExportUseCase.Result>(
+        replay = 0,
+        extraBufferCapacity = 1
+    )
+    val exportEvents: SharedFlow<ClusterAlbumExportUseCase.Result> = _exportEvents.asSharedFlow()
+
+    /** Snapshot of the most recently completed export, displayed on ExportComplete. */
+    private val _lastExportResult = MutableStateFlow<ClusterAlbumExportUseCase.Result?>(null)
+    val lastExportResult: StateFlow<ClusterAlbumExportUseCase.Result?> = _lastExportResult.asStateFlow()
+
+    fun startIndex(forceFullRescan: Boolean = false) {
+        Timber.d("startIndex(forceFullRescan=$forceFullRescan)")
+        FaceIndexWorker.enqueue(getApplication(), forceFullRescan = forceFullRescan)
+    }
+
+    fun cancelIndex() {
+        FaceIndexWorker.cancel(getApplication())
+    }
+
+    fun setMinClusterSize(size: Int) {
+        _minClusterSize.value = size.coerceAtLeast(1)
+    }
+
+    fun loadCluster(clusterId: Long) {
         viewModelScope.launch {
-            try {
-                Timber.d("Loading recent photos, limit=$limit")
-                val photos = photoRepository.queryRecentPhotos(limit)
-                _recentPhotos.value = photos
-                Timber.i("Loaded ${photos.size} recent photos")
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to load recent photos")
-            }
+            val cluster = db.clusterDao().byId(clusterId) ?: return@launch
+            val photoIds = db.faceDao().photoIdsInCluster(clusterId)
+            val photos = photoIds.mapNotNull { db.photoDao().findById(it) }
+                .sortedByDescending { it.dateTaken }
+            _selectedCluster.value = ClusterDetailState(
+                clusterId = clusterId,
+                displayName = cluster.displayName,
+                photos = photos
+            )
         }
     }
 
-    /**
-     * Toggle selection of a seed photo.
-     */
-    fun toggleSeedSelection(uri: Uri) {
-        _uiState.update { state ->
-            val currentSeeds = state.seedUris
-            val newSeeds = if (uri in currentSeeds) {
-                currentSeeds - uri
-            } else {
-                if (currentSeeds.size < 3) {
-                    currentSeeds + uri
-                } else {
-                    currentSeeds  // Already at max
-                }
-            }
-            state.copy(seedUris = newSeeds)
-        }
-    }
-
-    /**
-     * Start scanning the library with selected seeds.
-     */
-    fun startScan() {
-        Timber.d("Starting scan with ${_uiState.value.seedUris.size} seed photos")
-
-        // Check if model is ready before starting
-        val modelState = faceScanUseCase.getModelState()
-        if (modelState is ModelState.Failed) {
-            Timber.e("Cannot start scan: model not ready - ${modelState.reason}")
-            _uiState.update {
-                it.copy(scanState = ScanState.Error(modelState.reason))
-            }
-            return
-        }
-
-        scanJob?.cancel()
-        scanJob = viewModelScope.launch {
-            try {
-                // Compute seed embeddings
-                val seedEmbeddings = faceScanUseCase.computeSeedEmbeddings(
-                    _uiState.value.seedUris
-                )
-
-                if (seedEmbeddings.isEmpty()) {
-                    Timber.w("No faces found in seed photos")
-                    _uiState.update {
-                        it.copy(
-                            scanState = ScanState.Error("No faces found in seed photos")
-                        )
-                    }
-                    return@launch
-                }
-
-                _uiState.update { it.copy(seedEmbeddings = seedEmbeddings) }
-
-                // Start scanning
-                faceScanUseCase.scanLibrary(
-                    seedEmbeddings = seedEmbeddings,
-                    limit = _uiState.value.maxPhotosToScan,
-                    threshold = _uiState.value.similarityThreshold
-                ).collect { (progress, candidates) ->
-                    _uiState.update {
-                        it.copy(
-                            scanState = ScanState.Scanning(progress),
-                            candidates = candidates
-                        )
-                    }
-                }
-
-                // Scan complete
-                val finalCandidates = _uiState.value.candidates
-                Timber.i("Scan complete: found ${finalCandidates.size} matches")
-                _uiState.update {
-                    it.copy(
-                        scanState = ScanState.Complete(it.candidates)
-                    )
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Scan failed with error")
-                CrashReporter.recordNonFatal(
-                    throwable = e,
-                    source = "scan",
-                    context = mapOf(
-                        "seed_count" to _uiState.value.seedUris.size.toString(),
-                        "threshold" to _uiState.value.similarityThreshold.toString(),
-                        "max_scan" to _uiState.value.maxPhotosToScan.toString()
-                    )
-                )
-                _uiState.update {
-                    it.copy(
-                        scanState = ScanState.Error(e.message ?: "Unknown error")
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * Cancel ongoing scan.
-     */
-    fun cancelScan() {
-        Timber.d("Cancelling scan")
-        scanJob?.cancel()
-        scanJob = null
-        _uiState.update {
-            it.copy(scanState = ScanState.Idle)
-        }
-    }
-
-    /**
-     * Toggle approval status of a candidate photo.
-     */
-    fun toggleCandidateApproval(photoId: Long) {
-        _uiState.update { state ->
-            val updatedCandidates = state.candidates.map { candidate ->
-                if (candidate.photo.id == photoId) {
-                    candidate.copy(isApproved = !candidate.isApproved)
-                } else {
-                    candidate
-                }
-            }
-            state.copy(candidates = updatedCandidates)
-        }
-    }
-
-    /**
-     * Set the album name.
-     */
-    fun setAlbumName(name: String) {
-        _uiState.update { it.copy(albumName = name) }
-    }
-
-    /**
-     * Export approved photos to the album.
-     */
-    fun exportPhotos() {
+    fun renameCluster(clusterId: Long, name: String) {
         viewModelScope.launch {
-            val albumName = _uiState.value.albumName.ifBlank { "Person" }
-            val approvedPhotos = _uiState.value.candidates.filter { it.isApproved }
-
-            var successCount = 0
-
-            for (candidate in approvedPhotos) {
-                val result = photoRepository.copyToAlbum(
-                    sourceUri = candidate.photo.uri,
-                    albumName = albumName,
-                    originalFileName = candidate.photo.displayName
-                )
-                if (result != null) {
-                    successCount++
-                } else {
-                    CrashReporter.recordNonFatal(
-                        throwable = IllegalStateException("Export copy returned null"),
-                        source = "export",
-                        context = mapOf(
-                            "album_name_length" to albumName.length.toString(),
-                            "approved_count" to approvedPhotos.size.toString()
-                        )
-                    )
-                }
+            db.clusterDao().rename(clusterId, name.trim(), System.currentTimeMillis())
+            // Refresh detail state if open.
+            if (_selectedCluster.value?.clusterId == clusterId) {
+                loadCluster(clusterId)
             }
-
-            _exportedCount.value = successCount
         }
     }
 
-    /**
-     * Get count of approved photos.
-     */
-    fun getApprovedCount(): Int {
-        return _uiState.value.candidates.count { it.isApproved }
+    fun mergeClusters(fromClusterId: Long, intoClusterId: Long) {
+        viewModelScope.launch {
+            clusterer.mergeUserRequested(fromClusterId, intoClusterId)
+            if (_selectedCluster.value?.clusterId == fromClusterId) {
+                _selectedCluster.value = null
+            } else if (_selectedCluster.value?.clusterId == intoClusterId) {
+                loadCluster(intoClusterId)
+            }
+        }
     }
 
-    /**
-     * Reset the app state for a new scan.
-     */
-    fun reset() {
-        _uiState.value = AppUiState()
-        _exportedCount.value = 0
-        faceScanUseCase.clearCache()
+    fun exportCluster(clusterId: Long, albumName: String) {
+        viewModelScope.launch {
+            val result = exportUseCase.export(clusterId, albumName)
+            _lastExportResult.value = result
+            _exportEvents.tryEmit(result)
+        }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        faceScanUseCase.close()
+    fun clearIndex() {
+        viewModelScope.launch {
+            // Photos cascade to faces; clusters need explicit clearing.
+            db.faceDao().clear()
+            db.clusterDao().clear()
+            db.photoDao().clear()
+        }
+    }
+
+    fun pickAvailableMergeTargets(excludeClusterId: Long): List<ClusterSummary> {
+        return clusters.value.filter { it.id != excludeClusterId }
     }
 }

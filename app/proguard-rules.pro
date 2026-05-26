@@ -15,6 +15,20 @@
 # ---- FaceAlbum model/config data classes (defensive for reflection-based serialization/tooling) ----
 -keep class com.facealbum.model.** { *; }
 -keep class com.facealbum.config.** { *; }
+-keep class com.facealbum.data.db.** { *; }
+
+# ---- Room ----
+-keep class * extends androidx.room.RoomDatabase { *; }
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao class * { *; }
+-dontwarn androidx.room.paging.**
+
+# ---- WorkManager ----
+-keep class * extends androidx.work.Worker { *; }
+-keep class * extends androidx.work.CoroutineWorker { *; }
+-keepclassmembers class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
 
 # ---- Jetpack Compose / Kotlin metadata ----
 -keep class androidx.compose.** { *; }
