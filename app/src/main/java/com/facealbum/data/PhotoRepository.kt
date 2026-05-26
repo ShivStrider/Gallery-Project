@@ -47,16 +47,24 @@ class PhotoRepository(private val context: Context) {
      * Query every image in MediaStore that was added or modified after [sinceDateModifiedSec].
      * `dateModified` is in seconds since epoch (MediaStore convention).
      *
-     * Passing 0 returns the entire library — used for the first full index.
+     * Passing 0 returns the entire library — the first full index path.
      */
     suspend fun queryPhotosModifiedSince(sinceDateModifiedSec: Long): List<PhotoInfo> =
         withContext(Dispatchers.IO) {
-            queryPhotos(
-                selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ? AND " +
-                    "${MediaStore.Images.Media.DATE_MODIFIED} > ?",
-                selectionArgs = arrayOf("image/%", sinceDateModifiedSec.toString()),
-                sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} ASC"
-            )
+            if (sinceDateModifiedSec <= 0L) {
+                queryPhotos(
+                    selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ?",
+                    selectionArgs = arrayOf("image/%"),
+                    sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} ASC"
+                )
+            } else {
+                queryPhotos(
+                    selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ? AND " +
+                        "${MediaStore.Images.Media.DATE_MODIFIED} > ?",
+                    selectionArgs = arrayOf("image/%", sinceDateModifiedSec.toString()),
+                    sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} ASC"
+                )
+            }
         }
 
     private fun queryPhotos(

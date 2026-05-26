@@ -30,18 +30,23 @@
     <string name="people_empty_title">No people yet</string>
     <string name="people_empty_subtitle">Tap Scan to find faces in your photos.</string>
     <string name="people_unnamed">Unnamed</string>
-    <string name="people_face_count_format">%d photos</string>
+    <string name="people_face_count_format">%d faces</string>
     <string name="people_scan_now">Scan</string>
     <string name="people_scanning_progress">Scanning %1$d / %2$d · %3$d faces</string>
+    <string name="people_open_settings">Open settings</string>
+    <string name="cluster_detail_back">Back</string>
     <string name="cluster_detail_rename">Rename</string>
     <string name="cluster_detail_export">Export album</string>
     <string name="cluster_detail_merge">Merge with…</string>
+    <string name="cluster_detail_merge_empty">No other people to merge with yet.</string>
     <string name="cluster_detail_rename_hint">Person name</string>
     <string name="cluster_detail_save">Save</string>
+    <string name="cluster_default_name_format">Person %d</string>
     <string name="settings_title">Settings</string>
     <string name="settings_min_cluster_size">Minimum cluster size</string>
     <string name="settings_rescan_all">Re-scan entire library</string>
     <string name="settings_delete_index">Delete face index</string>
+    <string name="settings_delete_index_body">This removes all face data on this device. Exported albums remain.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_body">FaceAlbum runs entirely on your device. Face detection by Google ML Kit. Face recognition by MobileFaceNet.</string>
 </resources>

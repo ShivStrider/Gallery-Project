@@ -42,7 +42,10 @@ fun PeopleScreen(
                 title = { Text(stringResource(R.string.people_title)) },
                 actions = {
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.people_open_settings)
+                        )
                     }
                 }
             )

@@ -2,6 +2,7 @@ package com.facealbum.domain
 
 import android.content.Context
 import android.graphics.Rect
+import androidx.room.withTransaction
 import com.facealbum.data.FaceDetectorWrapper
 import com.facealbum.data.FaceEmbedder
 import com.facealbum.data.ModelState
@@ -98,19 +99,53 @@ class FaceIndexUseCase(
         return totalFacesAdded
     }
 
-    private suspend fun indexPhoto(photo: PhotoInfo): Int {
+    /**
+     * The whole photo's work runs inside one Room transaction so a crash or
+     * cancellation between face insert and cluster assignment cannot leave
+     * inflated cluster counts or unassigned faces.
+     */
+    private suspend fun indexPhoto(photo: PhotoInfo): Int = db.withTransaction {
         // Skip if MediaStore id already present AND its modification date didn't change.
         val existing = db.photoDao().findByMediaStoreId(photo.id)
         if (existing != null && existing.dateModified >= photo.dateModified) {
-            return 0
+            return@withTransaction 0
         }
 
-        val bitmap = BitmapLoader.loadScaled(context, photo.uri) ?: run {
-            Timber.w("Could not load bitmap for photo ${photo.uri}")
-            return 0
-        }
-        val faces = detector.detectAllFaces(bitmap)
         val now = System.currentTimeMillis()
+        val bitmap = BitmapLoader.loadScaled(context, photo.uri)
+
+        if (bitmap == null) {
+            // Persist a faceCount=0 row anyway so `lastIndexedDateModified` advances
+            // past this photo and we don't re-attempt every pass. Decode failure is
+            // usually permanent (corrupt file, unsupported format).
+            Timber.w("Could not load bitmap for photo ${photo.uri}; recording empty entry")
+            if (existing == null) {
+                db.photoDao().insert(
+                    PhotoEntity(
+                        mediaStoreId = photo.id,
+                        uri = photo.uri.toString(),
+                        displayName = photo.displayName,
+                        dateTaken = photo.dateTaken,
+                        dateModified = photo.dateModified,
+                        processedAt = now,
+                        faceCount = 0
+                    )
+                )
+            } else {
+                db.photoDao().updateMetadata(
+                    id = existing.id,
+                    uri = photo.uri.toString(),
+                    displayName = photo.displayName,
+                    dateTaken = photo.dateTaken,
+                    dateModified = photo.dateModified,
+                    processedAt = now,
+                    faceCount = 0
+                )
+            }
+            return@withTransaction 0
+        }
+
+        val faces = detector.detectAllFaces(bitmap)
 
         val photoRowId = if (existing == null) {
             db.photoDao().insert(
@@ -125,14 +160,15 @@ class FaceIndexUseCase(
                 )
             )
         } else {
-            // Photo contents changed since last index: drop old faces and re-extract.
-            // Capture which clusters were affected so we can re-balance their counts after.
+            // Photo contents changed: drop the old face rows and rebuild the centroid
+            // / cover face on every cluster they belonged to. Empty clusters are pruned
+            // at the end of the batch.
             val oldClusterIds = db.faceDao().facesForPhoto(existing.id)
                 .mapNotNull { it.clusterId }
                 .toSet()
             db.faceDao().deleteFacesForPhoto(existing.id)
             for (cid in oldClusterIds) {
-                db.clusterDao().recomputeFaceCount(cid, now)
+                clusterer.recomputeFromFaces(cid)
             }
             db.photoDao().updateMetadata(
                 id = existing.id,
@@ -146,13 +182,14 @@ class FaceIndexUseCase(
             existing.id
         }
 
-        if (faces.isEmpty()) return 0
+        if (faces.isEmpty()) return@withTransaction 0
 
         val photoArea = (bitmap.width * bitmap.height).coerceAtLeast(1).toFloat()
         var added = 0
         for (face in faces) {
             val embedding = computeEmbedding(bitmap, face.boundingBox) ?: continue
-            val quality = (face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea
+            val quality = ((face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea)
+                .coerceIn(0f, 1f)
             val faceRowId = db.faceDao().insert(
                 FaceEntity(
                     photoId = photoRowId,
@@ -162,13 +199,13 @@ class FaceIndexUseCase(
                     bboxRight = face.boundingBox.right,
                     bboxBottom = face.boundingBox.bottom,
                     embedding = Embeddings.toBytes(embedding),
-                    quality = quality.coerceIn(0f, 1f)
+                    quality = quality
                 )
             )
-            clusterer.assign(faceRowId, embedding, quality.coerceIn(0f, 1f))
+            clusterer.assign(faceRowId, embedding, quality)
             added += 1
         }
-        return added
+        added
     }
 
     private fun computeEmbedding(bitmap: android.graphics.Bitmap, bbox: Rect): FloatArray? {

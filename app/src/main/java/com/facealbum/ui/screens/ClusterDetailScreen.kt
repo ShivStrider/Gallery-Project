@@ -42,7 +42,10 @@ fun ClusterDetailScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = stringResource(R.string.cluster_detail_back)
+                        )
                     }
                 },
                 title = {
@@ -50,7 +53,10 @@ fun ClusterDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { renameDialogOpen = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.cluster_detail_rename)
+                        )
                     }
                 }
             )
@@ -95,8 +101,11 @@ fun ClusterDetailScreen(
     }
 
     if (exportDialogOpen) {
+        val defaultName = state.displayName.orEmpty().ifBlank {
+            stringResource(R.string.cluster_default_name_format, state.clusterId)
+        }
         AlbumNameDialog(
-            initial = state.displayName.orEmpty().ifBlank { "Person_${state.clusterId}" },
+            initial = defaultName,
             onDismiss = { exportDialogOpen = false },
             onConfirm = { name ->
                 onExport(name)
@@ -196,7 +205,7 @@ private fun MergePicker(
         title = { Text(stringResource(R.string.cluster_detail_merge)) },
         text = {
             if (candidates.isEmpty()) {
-                Text("Nothing to merge with yet.")
+                Text(stringResource(R.string.cluster_detail_merge_empty))
             } else {
                 Column {
                     candidates.forEach { c ->

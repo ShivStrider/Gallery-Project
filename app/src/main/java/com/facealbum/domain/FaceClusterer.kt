@@ -63,7 +63,10 @@ class FaceClusterer(
                 addition = embedding
             )
             val newCount = bestEntity.faceCount + 1
-            val coverFaceId = pickCoverFace(bestEntity.coverFaceId, faceId, quality)
+            // Keep the first face as the cover until we have stored, comparable
+            // quality for the existing cover. Quality-based upgrade is tracked
+            // separately; this avoids thumbnail flicker on every new assignment.
+            val coverFaceId = bestEntity.coverFaceId ?: faceId
             clusterDao.update(
                 bestEntity.copy(
                     centroid = Embeddings.toBytes(merged),
@@ -145,10 +148,41 @@ class FaceClusterer(
         mergeInto(survivor = survivor, absorbed = absorbed)
     }
 
-    private fun pickCoverFace(existing: Long?, newFaceId: Long, newQuality: Float): Long? {
-        // Prefer highest-quality face. If we don't have stored quality on the existing
-        // cover, keep the existing one — quality is monotonic enough at scan time.
-        return existing ?: newFaceId
+    /**
+     * Rebuild a cluster's centroid + cover face from its current face rows.
+     * Called from the indexer when faces are deleted (e.g. photo re-indexed).
+     *
+     * If the cluster ends up empty, it's deleted; the caller normally also runs
+     * [ClusterDao.deleteEmpty] after the batch to clean up any others.
+     */
+    suspend fun recomputeFromFaces(clusterId: Long) {
+        val faces = faceDao.facesInCluster(clusterId)
+        val cluster = clusterDao.byId(clusterId) ?: return
+        if (faces.isEmpty()) {
+            clusterDao.delete(clusterId)
+            return
+        }
+        val dim = Embeddings.fromBytes(faces.first().embedding).size
+        val sum = FloatArray(dim)
+        var bestFaceId = faces.first().id
+        var bestQuality = faces.first().quality
+        for (f in faces) {
+            val v = Embeddings.fromBytes(f.embedding)
+            for (i in 0 until dim) sum[i] += v[i]
+            if (f.quality > bestQuality) {
+                bestQuality = f.quality
+                bestFaceId = f.id
+            }
+        }
+        for (i in 0 until dim) sum[i] /= faces.size
+        clusterDao.update(
+            cluster.copy(
+                centroid = Embeddings.toBytes(l2Normalized(sum)),
+                faceCount = faces.size,
+                coverFaceId = bestFaceId,
+                updatedAt = now()
+            )
+        )
     }
 
     private fun runningMean(oldCentroid: FloatArray, oldCount: Int, addition: FloatArray): FloatArray {

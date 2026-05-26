@@ -29,17 +29,6 @@ interface ClusterDao {
     @Query("UPDATE clusters SET displayName = :name, updatedAt = :now WHERE id = :id")
     suspend fun rename(id: Long, name: String, now: Long)
 
-    /** Recompute faceCount from the faces table for a single cluster. */
-    @Query(
-        """
-        UPDATE clusters
-        SET faceCount = (SELECT COUNT(*) FROM faces WHERE clusterId = :id),
-            updatedAt = :now
-        WHERE id = :id
-        """
-    )
-    suspend fun recomputeFaceCount(id: Long, now: Long)
-
     /** Drop clusters that ended up with zero faces (e.g. after a re-index). */
     @Query("DELETE FROM clusters WHERE faceCount = 0")
     suspend fun deleteEmpty()

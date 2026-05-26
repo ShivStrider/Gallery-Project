@@ -27,7 +27,10 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = stringResource(R.string.cluster_detail_back)
+                        )
                     }
                 }
             )
@@ -86,7 +89,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.settings_delete_index)) },
-            text = { Text("This removes all face data on this device. Exported albums remain.") },
+            text = { Text(stringResource(R.string.settings_delete_index_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     onDeleteIndex()
