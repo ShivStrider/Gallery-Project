@@ -1,16 +1,29 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.facealbum.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.facealbum.R
+import com.facealbum.ui.theme.Spacing
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     minClusterSize: Int,
@@ -24,11 +37,16 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+                title = {
+                    Text(
+                        stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.Default.ArrowBack,
+                            Icons.Outlined.ArrowBack,
                             contentDescription = stringResource(R.string.cluster_detail_back)
                         )
                     }
@@ -37,51 +55,46 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = Spacing.sm)
         ) {
-            Column {
-                Text(
-                    text = stringResource(R.string.settings_min_cluster_size),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = minClusterSize.toString(),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Slider(
-                    value = minClusterSize.toFloat(),
-                    onValueChange = { onMinClusterSizeChange(it.toInt()) },
-                    valueRange = 1f..10f,
-                    steps = 8
-                )
-            }
+            SectionHeader(stringResource(R.string.settings_section_clustering))
+            MinClusterSizeRow(
+                value = minClusterSize,
+                onValueChange = onMinClusterSizeChange
+            )
 
-            Divider()
+            Spacer(Modifier.height(Spacing.md))
 
-            OutlinedButton(
-                onClick = onRescanAll,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(stringResource(R.string.settings_rescan_all)) }
-
-            OutlinedButton(
+            SectionHeader(stringResource(R.string.settings_section_data))
+            SettingRow(
+                icon = Icons.Outlined.Refresh,
+                title = stringResource(R.string.settings_rescan_all),
+                subtitle = stringResource(R.string.settings_rescan_all_body),
+                onClick = onRescanAll
+            )
+            SettingRow(
+                icon = Icons.Outlined.DeleteOutline,
+                title = stringResource(R.string.settings_delete_index),
+                subtitle = stringResource(R.string.settings_delete_index_body),
                 onClick = { confirmDelete = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) { Text(stringResource(R.string.settings_delete_index)) }
-
-            Divider()
-
-            Text(
-                text = stringResource(R.string.settings_about),
-                style = MaterialTheme.typography.titleMedium
+                tintError = true
             )
-            Text(
-                text = stringResource(R.string.settings_about_body),
-                style = MaterialTheme.typography.bodySmall
+
+            Spacer(Modifier.height(Spacing.md))
+
+            SectionHeader(stringResource(R.string.settings_about))
+            SettingRow(
+                icon = Icons.Outlined.Info,
+                title = stringResource(R.string.app_name),
+                subtitle = stringResource(R.string.settings_about_body),
+                onClick = null
             )
+
+            Spacer(Modifier.height(Spacing.xl))
         }
     }
 
@@ -102,5 +115,118 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(
+            start = Spacing.md,
+            end = Spacing.md,
+            top = Spacing.md,
+            bottom = Spacing.xs
+        )
+    )
+}
+
+@Composable
+private fun MinClusterSizeRow(value: Int, onValueChange: (Int) -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(modifier = Modifier.padding(Spacing.md)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Tune,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.settings_min_cluster_size),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        stringResource(R.string.settings_min_cluster_size_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = value.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.sm))
+            Slider(
+                value = value.toFloat(),
+                onValueChange = { onValueChange(it.toInt()) },
+                valueRange = 1f..10f,
+                steps = 8
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)?,
+    tintError: Boolean = false
+) {
+    val titleColor =
+        if (tintError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    val iconColor =
+        if (tintError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+
+    val baseModifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+    val rowModifier = if (onClick != null) baseModifier.clickable(onClick = onClick) else baseModifier
+
+    Surface(
+        modifier = rowModifier,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(
+            modifier = Modifier.padding(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconColor
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = titleColor)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

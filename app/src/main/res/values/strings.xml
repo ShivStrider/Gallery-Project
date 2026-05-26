@@ -11,8 +11,16 @@
     <string name="album_name_hint">Album name</string>
     <string name="album_name_default">Person</string>
     <string name="welcome_title">FaceAlbum</string>
-    <string name="welcome_subtitle">Group photos by face — all on your device. No upload, no account.</string>
-    <string name="export_complete_title">Export Complete</string>
+    <string name="welcome_subtitle">Group photos by face — all on your device.</string>
+    <string name="welcome_feature_group_title">Group every face</string>
+    <string name="welcome_feature_group_body">Your photo library, organised by person — automatically.</string>
+    <string name="welcome_feature_private_title">Stays on your device</string>
+    <string name="welcome_feature_private_body">No uploads. No accounts. No tracking.</string>
+    <string name="welcome_feature_export_title">Export albums</string>
+    <string name="welcome_feature_export_body">Save a folder of photos for anyone you tag.</string>
+    <string name="export_complete_title">Album exported</string>
+    <string name="export_complete_count_label">photos saved</string>
+    <string name="export_complete_location">Find them in Pictures › FaceAlbums › %1$s</string>
     <string name="export_success_icon">Success</string>
     <string name="export_success_format">Exported %1$d photos to Pictures/FaceAlbums/%2$s</string>
 
@@ -29,6 +37,7 @@
     <string name="people_title">People</string>
     <string name="people_empty_title">No people yet</string>
     <string name="people_empty_subtitle">Tap Scan to find faces in your photos.</string>
+    <string name="people_empty_scanning">Looking through your photos…</string>
     <string name="people_unnamed">Unnamed</string>
     <string name="people_face_count_format">%d faces</string>
     <string name="people_scan_now">Scan</string>
@@ -43,10 +52,14 @@
     <string name="cluster_detail_save">Save</string>
     <string name="cluster_default_name_format">Person %d</string>
     <string name="settings_title">Settings</string>
+    <string name="settings_section_clustering">Clustering</string>
+    <string name="settings_section_data">Data</string>
     <string name="settings_min_cluster_size">Minimum cluster size</string>
+    <string name="settings_min_cluster_size_body">Hide groups with fewer faces than this.</string>
     <string name="settings_rescan_all">Re-scan entire library</string>
+    <string name="settings_rescan_all_body">Re-process every photo from scratch.</string>
     <string name="settings_delete_index">Delete face index</string>
-    <string name="settings_delete_index_body">This removes all face data on this device. Exported albums remain.</string>
+    <string name="settings_delete_index_body">Remove all face data on this device. Exported albums stay where they are.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_body">FaceAlbum runs entirely on your device. Face detection by Google ML Kit. Face recognition by MobileFaceNet.</string>
 </resources>
