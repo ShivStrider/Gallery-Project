@@ -1,33 +1,44 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.facealbum.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Face
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.facealbum.MainViewModel
 import com.facealbum.R
 import com.facealbum.data.db.ClusterSummary
+import com.facealbum.ui.theme.Spacing
 
 /**
- * The Google-Photos-style "People" grid: one tile per cluster, sorted by size.
+ * Hero "People" grid. Mirrors the Google Photos layout: large rounded thumbnail
+ * tiles with the name overlaid at the bottom over a gradient scrim.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeopleScreen(
     clusters: List<ClusterSummary>,
@@ -36,54 +47,73 @@ fun PeopleScreen(
     onScanNow: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.people_title)) },
+            LargeTopAppBar(
+                title = {
+                    Text(
+                        text = stringResource(R.string.people_title),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
+                },
                 actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(
-                            Icons.Default.Settings,
+                            Icons.Outlined.Settings,
                             contentDescription = stringResource(R.string.people_open_settings)
                         )
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onScanNow,
-                icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                text = { Text(stringResource(R.string.people_scan_now)) }
+                expanded = !indexProgress.running,
+                icon = {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                },
+                text = { Text(stringResource(R.string.people_scan_now)) },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (indexProgress.running) {
-                IndexProgressBar(indexProgress)
-            } else {
-                indexProgress.errorMessage?.let { msg ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = msg,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
+            AnimatedVisibility(
+                visible = indexProgress.running || indexProgress.errorMessage != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                when {
+                    indexProgress.errorMessage != null ->
+                        ErrorBanner(message = indexProgress.errorMessage)
+                    else -> IndexProgressBanner(progress = indexProgress)
                 }
             }
 
             if (clusters.isEmpty()) {
-                EmptyPeopleState(modifier = Modifier.weight(1f))
+                EmptyPeopleState(
+                    isScanning = indexProgress.running,
+                    modifier = Modifier.weight(1f)
+                )
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(120.dp),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    columns = GridCells.Adaptive(150.dp),
+                    contentPadding = PaddingValues(
+                        start = Spacing.md,
+                        end = Spacing.md,
+                        top = Spacing.sm,
+                        bottom = 96.dp // room for FAB
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(clusters, key = { it.id }) { cluster ->
@@ -96,71 +126,155 @@ fun PeopleScreen(
 }
 
 @Composable
-private fun IndexProgressBar(progress: MainViewModel.IndexProgress) {
+private fun IndexProgressBanner(progress: MainViewModel.IndexProgress) {
     val total = progress.total.coerceAtLeast(1)
-    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.people_scanning_progress,
+                    progress.done, progress.total, progress.faces
+                ),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            LinearProgressIndicator(
+                progress = { (progress.done.toFloat() / total).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorBanner(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
         Text(
-            text = stringResource(
-                R.string.people_scanning_progress,
-                progress.done, progress.total, progress.faces
-            ),
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(4.dp))
-        LinearProgressIndicator(
-            progress = (progress.done.toFloat() / total).coerceIn(0f, 1f),
-            modifier = Modifier.fillMaxWidth()
+            text = message,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(Spacing.md)
         )
     }
 }
 
 @Composable
 private fun ClusterTile(cluster: ClusterSummary, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val nameOrPlaceholder = cluster.displayName?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.people_unnamed)
+
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier.aspectRatio(0.85f),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
-        AsyncImage(
-            model = cluster.coverPhotoUri,
-            contentDescription = cluster.displayName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(120.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = cluster.displayName ?: stringResource(R.string.people_unnamed),
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1
-        )
-        Text(
-            text = stringResource(R.string.people_face_count_format, cluster.faceCount),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (cluster.coverPhotoUri != null) {
+                AsyncImage(
+                    model = cluster.coverPhotoUri,
+                    contentDescription = nameOrPlaceholder,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Face,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Bottom gradient scrim to make the label readable over any photo.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+            ) {
+                Text(
+                    text = nameOrPlaceholder,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1
+                )
+                Text(
+                    text = stringResource(R.string.people_face_count_format, cluster.faceCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun EmptyPeopleState(modifier: Modifier) {
+private fun EmptyPeopleState(isScanning: Boolean, modifier: Modifier) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(32.dp),
+        modifier = modifier.fillMaxWidth().padding(Spacing.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Face,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(40.dp)
+            )
+        }
+        Spacer(Modifier.height(Spacing.lg))
         Text(
             text = stringResource(R.string.people_empty_title),
-            style = MaterialTheme.typography.titleLarge
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         Text(
-            text = stringResource(R.string.people_empty_subtitle),
+            text = if (isScanning) {
+                stringResource(R.string.people_empty_scanning)
+            } else {
+                stringResource(R.string.people_empty_subtitle)
+            },
             style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
     }
 }
-
