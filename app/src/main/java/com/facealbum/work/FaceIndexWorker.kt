@@ -10,9 +10,13 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -21,6 +25,7 @@ import com.facealbum.R
 import com.facealbum.domain.FaceIndexUseCase
 import com.facealbum.telemetry.CrashReporter
 import timber.log.Timber
+import java.util.concurrent.TimeUnit
 
 /**
  * Background worker that runs [FaceIndexUseCase] under a foreground notification.
@@ -112,6 +117,7 @@ class FaceIndexWorker(
 
     companion object {
         const val UNIQUE_WORK_NAME = "face_index"
+        const val UNIQUE_PERIODIC_WORK_NAME = "face_index_periodic"
         private const val CHANNEL_ID = "face_index_channel"
         private const val NOTIF_ID = 4242
 
@@ -123,7 +129,12 @@ class FaceIndexWorker(
         const val KEY_ERROR_MESSAGE = "error_message"
 
         fun enqueue(context: Context, forceFullRescan: Boolean = false) {
+            val constraints = Constraints.Builder()
+                .setRequiresBatteryNotLow(true)
+                .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                .build()
             val request = OneTimeWorkRequestBuilder<FaceIndexWorker>()
+                .setConstraints(constraints)
                 .setInputData(Data.Builder().putBoolean(KEY_FORCE_FULL_RESCAN, forceFullRescan).build())
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
@@ -135,6 +146,25 @@ class FaceIndexWorker(
 
         fun cancel(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
+        }
+
+        /**
+         * Periodic incremental re-indexing to pick up newly added media in background.
+         */
+        fun enqueuePeriodic(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiresBatteryNotLow(true)
+                .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                .build()
+            val periodic = PeriodicWorkRequestBuilder<FaceIndexWorker>(12, TimeUnit.HOURS)
+                .setConstraints(constraints)
+                .setInputData(Data.Builder().putBoolean(KEY_FORCE_FULL_RESCAN, false).build())
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                UNIQUE_PERIODIC_WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodic
+            )
         }
     }
 }

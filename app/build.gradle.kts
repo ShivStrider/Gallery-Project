@@ -6,6 +6,20 @@ plugins {
     id("com.google.firebase.crashlytics")
 }
 
+val mobileFaceNetAsset = layout.projectDirectory.file("src/main/assets/mobile_face_net.tflite")
+tasks.register("verifyFaceModelPresent") {
+    group = "verification"
+    description = "Verifies MobileFaceNet model asset exists before building installable artifacts."
+    doLast {
+        if (!mobileFaceNetAsset.asFile.exists()) {
+            throw GradleException(
+                "Missing required model asset: app/src/main/assets/mobile_face_net.tflite. " +
+                    "See INSTALL.md for download + SHA-256 verification steps."
+            )
+        }
+    }
+}
+
 android {
     namespace = "com.facealbum"
     compileSdk = 34
@@ -66,6 +80,10 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+}
+
+tasks.matching { it.name in setOf("preBuild", "assemble", "bundle") }.configureEach {
+    dependsOn("verifyFaceModelPresent")
 }
 
 dependencies {
