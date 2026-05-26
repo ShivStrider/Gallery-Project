@@ -128,10 +128,15 @@ class PhotoRepository(private val context: Context) {
         val resolver = context.contentResolver
         val relativePath = "${Environment.DIRECTORY_PICTURES}/FaceAlbums/$albumName"
         val mimeType = resolver.getType(sourceUri) ?: deriveMimeTypeFromFileName(originalFileName)
-        val uniqueName = makeUniqueDisplayName(originalFileName)
+        val stableName = makeStableDisplayName(originalFileName, sourceUri)
+
+        val existing = findExistingInAlbum(relativePath, stableName)
+        if (existing != null) {
+            return@withContext CopyToAlbumResult.Success(existing)
+        }
 
         val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, uniqueName)
+            put(MediaStore.Images.Media.DISPLAY_NAME, stableName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
@@ -174,11 +179,27 @@ class PhotoRepository(private val context: Context) {
         }
     }
 
-    private fun makeUniqueDisplayName(originalFileName: String): String {
+    private fun makeStableDisplayName(originalFileName: String, sourceUri: Uri): String {
         val dot = originalFileName.lastIndexOf('.')
         val base = if (dot > 0) originalFileName.substring(0, dot) else originalFileName
         val ext = if (dot > 0) originalFileName.substring(dot) else ""
-        return "${base}_${System.currentTimeMillis()}$ext"
+        val sourceToken = sourceUri.lastPathSegment?.takeLast(16)?.replace(Regex("[^A-Za-z0-9_-]"), "")
+            ?: "src"
+        return "${base}_${sourceToken}$ext"
+    }
+
+    private fun findExistingInAlbum(relativePath: String, displayName: String): Uri? {
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val selection = "${MediaStore.Images.Media.RELATIVE_PATH}=? AND ${MediaStore.Images.Media.DISPLAY_NAME}=?"
+        val args = arrayOf(relativePath, displayName)
+        context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                return ContentUris.withAppendedId(collection, id)
+            }
+        }
+        return null
     }
 
     private fun deriveMimeTypeFromFileName(fileName: String): String {
