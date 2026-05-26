@@ -33,4 +33,12 @@ interface FaceDao {
 
     @Query("DELETE FROM faces")
     suspend fun clear()
+
+    /** Drop every face's cluster assignment without deleting the face rows. */
+    @Query("UPDATE faces SET clusterId = NULL")
+    suspend fun clearAllClusterAssignments()
+
+    /** Ordered by quality desc so re-clustering seeds new clusters from the best faces first. */
+    @Query("SELECT * FROM faces ORDER BY quality DESC")
+    suspend fun allOrderedByQualityDesc(): List<FaceEntity>
 }

@@ -38,6 +38,9 @@ fun NavGraph(
     val selectedCluster by viewModel.selectedCluster.collectAsState()
     val lastExportResult by viewModel.lastExportResult.collectAsState()
     val minClusterSize by viewModel.minClusterSize.collectAsState()
+    val assignThreshold by viewModel.assignThreshold.collectAsState()
+    val pendingThreshold by viewModel.pendingAssignThreshold.collectAsState()
+    val reclusterProgress by viewModel.reclusterProgress.collectAsState()
 
     // Listen for one-shot export completions globally so any screen can react.
     LaunchedEffect(Unit) {
@@ -96,6 +99,12 @@ fun NavGraph(
             SettingsScreen(
                 minClusterSize = minClusterSize,
                 onMinClusterSizeChange = viewModel::setMinClusterSize,
+                assignThreshold = assignThreshold,
+                pendingAssignThreshold = pendingThreshold,
+                reclusterProgress = reclusterProgress,
+                onPreviewThreshold = viewModel::previewAssignThreshold,
+                onCommitThreshold = viewModel::commitAssignThreshold,
+                onRecluster = viewModel::recluster,
                 onRescanAll = { viewModel.startIndex(forceFullRescan = true) },
                 onDeleteIndex = { viewModel.clearIndex() },
                 onBack = { navController.popBackStack() }
