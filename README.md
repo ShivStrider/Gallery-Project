@@ -1,383 +1,265 @@
-# FaceAlbum MVP - On-Device Face Grouping App
+# FaceAlbum — On-Device Face Clustering for Android
 
-An Android app that helps you find all photos of a specific person in your gallery using on-device machine learning. No cloud processing, complete privacy.
+A privacy-first photo organizer. FaceAlbum scans your photo library, groups every
+detected face into clusters, and lets you name each person and export an album of
+just their photos. Everything happens on-device — no uploads, no accounts, no
+telemetry.
+
+![Status](https://img.shields.io/badge/status-pre--release-blue)
+![Platform](https://img.shields.io/badge/Android-8.0%2B-green)
+![Language](https://img.shields.io/badge/Kotlin-1.9-purple)
 
 ## Features
 
-### MVP (Implemented)
-- ✅ **Seed Photo Selection** - Select 1-3 photos of the target person
-- ✅ **Face Detection** - ML Kit detects faces, uses largest face per photo
-- ✅ **Face Embedding** - TFLite model computes face embeddings (512-dim vectors)
-- ✅ **Library Scanning** - Scans most recent 500 photos (configurable)
-- ✅ **Similarity Matching** - Cosine similarity with 0.6 threshold
-- ✅ **Candidate Review** - Grid view to approve/reject matches
-- ✅ **Export to Folder** - Copies approved photos to `Pictures/FaceAlbums/<Name>/`
-- ✅ **Offline Operation** - Works 100% offline after initial install
-- ✅ **Progress UI** - Real-time scanning progress with cancel option
-- ✅ **EXIF Rotation** - Handles photo orientation correctly
-
-### Future Enhancements
-- Adjustable similarity threshold slider
-- Persistent scan results (Room database)
-- Background scanning (WorkManager)
-- Multiple album support
-- Thumbnail caching
+- **Whole-library indexing** — scans every photo in `MediaStore`, not just the first N.
+- **Automatic face grouping** — clusters faces by similarity so each person appears as their own tile (Google-Photos-style "People" view).
+- **Tag faces** — rename a cluster once and the name sticks across rescans.
+- **Export per-person albums** — copies all photos of one person into `Pictures/FaceAlbums/<Name>/`, visible immediately in Google Photos, Files, etc.
+- **Incremental rescans** — subsequent scans only process photos modified since the last index pass.
+- **Manual overrides** — merge two clusters that should be one person; the merge sticks.
+- **100% offline** — no internet permission, no analytics, no third-party services beyond on-device ML Kit + TFLite.
+- **Material You** — dynamic colors on Android 12+, dark theme, edge-to-edge.
 
 ## Architecture
 
-### Tech Stack
-- **Language**: Kotlin
-- **UI**: Jetpack Compose + Material 3
-- **Architecture**: MVVM with single ViewModel
-- **ML**: Google ML Kit (face detection) + TensorFlow Lite (embeddings)
-- **Concurrency**: Kotlin Coroutines + Flow
-- **Image Loading**: Coil
-- **Navigation**: Jetpack Navigation Compose
+### Tech stack
 
-### Project Structure
+| Layer | Choice |
+|---|---|
+| Language | Kotlin 1.9 |
+| UI | Jetpack Compose + Material 3 |
+| Architecture | MVVM, single ViewModel, `StateFlow` + `SharedFlow` |
+| ML | Google ML Kit (face detection) + TensorFlow Lite (MobileFaceNet embeddings) |
+| Persistence | Room 2.6 (`photos / faces / clusters / albums`) |
+| Background | WorkManager 2.9 (foreground service, `dataSync` type) |
+| Image loading | Coil |
+| Logging / crash | Timber + Firebase Crashlytics |
+| Min / target SDK | API 26 (Android 8.0) / API 34 (Android 14) |
+
+### Pipeline
+
+```
+WorkManager schedules FaceIndexWorker (foreground notification)
+    ↓
+PhotoRepository.queryPhotosModifiedSince(lastIndexed)
+    ↓
+For each photo (inside db.withTransaction):
+    BitmapLoader (downscale + EXIF rotate)
+    FaceDetectorWrapper.detectAllFaces (ML Kit, fast mode)
+    For each face:
+        FacePreprocessor (margin crop + 112×112 + normalize to [-1, 1])
+        FaceEmbedder.getEmbedding (TFLite → 512-D L2-normalized vector)
+        FaceClusterer.assign:
+            best cluster by cosine similarity ≥ assign threshold → join + update centroid
+            else → open a new singleton cluster
+    ↓
+End of batch: FaceClusterer.mergeClose()  // catches ordering effects
+ClusterDao.deleteEmpty()
+    ↓
+PeopleScreen observes ClusterDao.summariesAtLeast(minSize) via Flow
+ClusterDetailScreen lets you rename / merge / export
+ClusterAlbumExportUseCase copies photos via PhotoRepository.copyToAlbumWithResult
+    → Pictures/FaceAlbums/<Name>/
+```
+
+### Project layout
 
 ```
 app/src/main/java/com/facealbum/
-├── MainActivity.kt                   # Entry point
-├── MainViewModel.kt                  # Central state management
-├── data/                             # Data layer
-│   ├── PhotoRepository.kt            # MediaStore access & export
-│   ├── FaceDetectorWrapper.kt        # ML Kit face detection
-│   └── FaceEmbedder.kt              # TFLite embedding extraction
-├── domain/                           # Business logic
-│   ├── SimilarityMatcher.kt         # Cosine similarity calculations
-│   └── FaceScanUseCase.kt           # Orchestrates scanning pipeline
-├── model/                            # Data models
-│   ├── PhotoInfo.kt
-│   ├── CandidatePhoto.kt
-│   ├── ScanProgress.kt
-│   ├── ScanState.kt
-│   └── AppUiState.kt
-├── ui/                               # Presentation layer
+├── MainActivity.kt
+├── MainViewModel.kt                    # cluster-based UI state, WorkManager bridge
+├── FaceAlbumApp.kt                     # Timber + Crashlytics init
+├── config/
+│   └── FaceRecognitionConfig.kt        # thresholds, model input size, batch sizes
+├── data/
+│   ├── PhotoRepository.kt              # MediaStore queries + album export
+│   ├── FaceDetectorWrapper.kt          # ML Kit wrapper (detectAllFaces / detectLargestFace)
+│   ├── FaceEmbedder.kt                 # TFLite interpreter; degrades gracefully if model missing
+│   └── db/
+│       ├── FaceAlbumDatabase.kt
+│       ├── PhotoEntity / PhotoDao
+│       ├── FaceEntity / FaceDao
+│       ├── ClusterEntity / ClusterDao (+ ClusterSummary projection)
+│       ├── AlbumEntity / AlbumDao
+│       └── Embeddings.kt               # FloatArray ↔ ByteArray serialization
+├── domain/
+│   ├── SimilarityMatcher.kt            # cosine similarity (pure)
+│   ├── FaceClusterer.kt                # online assign + periodic merge
+│   ├── FaceIndexUseCase.kt             # transactional per-photo indexing
+│   └── ClusterAlbumExportUseCase.kt    # cluster → MediaStore export
+├── work/
+│   └── FaceIndexWorker.kt              # WorkManager + foreground notification
+├── ui/
 │   ├── screens/
-│   │   ├── WelcomeScreen.kt         # Permission handling
-│   │   ├── SeedSelectionScreen.kt   # Seed photo picker
-│   │   ├── ScanningScreen.kt        # Progress indicator
-│   │   ├── ReviewScreen.kt          # Match approval UI
-│   │   └── ExportCompleteScreen.kt  # Success message
-│   ├── components/
-│   │   └── PhotoGrid.kt             # Reusable photo grid
+│   │   ├── WelcomeScreen.kt
+│   │   ├── PeopleScreen.kt             # cluster grid + progress
+│   │   ├── ClusterDetailScreen.kt      # hero + photos + actions
+│   │   ├── SettingsScreen.kt
+│   │   └── ExportCompleteScreen.kt
 │   └── theme/
-│       └── Theme.kt                 # Material 3 theme
+│       ├── Color.kt                    # light + dark schemes
+│       ├── Type.kt
+│       ├── Spacing.kt                  # 4dp grid tokens
+│       └── Theme.kt                    # Material You + edge-to-edge
 ├── navigation/
-│   └── NavGraph.kt                  # Navigation routes
-└── util/                             # Utilities
-    ├── BitmapLoader.kt              # Image loading with EXIF
-    └── FacePreprocessor.kt          # Face cropping & normalization
+│   └── NavGraph.kt
+├── telemetry/
+│   └── CrashReporter.kt
+└── util/
+    ├── BitmapLoader.kt
+    └── FacePreprocessor.kt
 ```
 
-### Data Flow
-
-```
-User selects seeds
-    ↓
-FaceScanUseCase computes seed embeddings
-    ↓
-PhotoRepository queries recent photos
-    ↓
-For each photo:
-    BitmapLoader loads & rotates image
-    FaceDetector finds largest face
-    FacePreprocessor crops & normalizes
-    FaceEmbedder extracts embedding
-    SimilarityMatcher compares to seeds
-    If match → add to candidates
-    ↓
-User reviews candidates in ReviewScreen
-    ↓
-PhotoRepository copies approved photos to album
-    ↓
-Export complete!
-```
-
-## Setup Instructions
+## Setup
 
 ### Prerequisites
-- Android Studio Hedgehog (2023.1.1) or later
+- Android Studio Hedgehog (2023.1.1) or newer
 - Android SDK 34
-- Physical Android device with API 26+ (Android 8.0+)
-- USB debugging enabled
+- Physical device on API 26+ (emulators work but are slow; ML Kit + TFLite + photo I/O all benefit from real hardware)
 
-### Step 1: Clone and Open Project
+### 1. Clone
 
 ```bash
-git clone <your-repo-url>
+git clone <repo-url>
 cd Gallery-Project
 ```
 
-Open the project in Android Studio.
+### 2. Drop in the TFLite model (required)
 
-### Step 2: Add TFLite Model (Critical!)
+The app builds without the model, but indexing will fail at runtime with a
+clear error. Put a MobileFaceNet weight at:
 
-The app requires a face recognition model to work. You have two options:
+```
+app/src/main/assets/mobile_face_net.tflite
+```
 
-#### Option A: Download MobileFaceNet (Recommended)
-1. Download MobileFaceNet model (~5MB, 512-dim output)
-2. Rename it to `mobile_face_net.tflite`
-3. Place it in `app/src/main/assets/mobile_face_net.tflite`
+**Contract** (matches `FaceRecognitionConfig` + `FaceEmbedder`):
+- Input: `1 × 112 × 112 × 3` float32, normalized to `[-1, 1]`
+- Output: `1 × 512` float32 (L2-normalized inside the app)
 
-**Where to find models:**
-- [TensorFlow Hub - Face Recognition Models](https://tfhub.dev/s?q=face%20embedding)
-- GitHub: Search for "MobileFaceNet TFLite"
-- [Face Recognition Models Collection](https://github.com/topics/face-recognition)
+**Recommended (license-clean) sources:**
+- [`sirius-ai/MobileFaceNet_TF`](https://github.com/sirius-ai/MobileFaceNet_TF) — MIT, exports directly to `.tflite`
+- [`insightface`](https://github.com/deepinsight/insightface) ArcFace MobileFaceNet ONNX → convert with `tf2onnx` + `tflite_convert`
 
-#### Option B: Use FaceNet (Larger, More Accurate)
-- FaceNet models are ~90MB but more accurate
-- Same steps: rename to `mobile_face_net.tflite`
+Record the SHA-256 and license in `app/src/main/assets/README_MODEL.txt`.
 
-**Model Requirements:**
-- Input: 112x112x3 RGB image, normalized to [-1, 1]
-- Output: 512-dimensional float array (embedding)
-
-Without the model, the app will build but face matching won't work (only detection will function).
-
-### Step 3: Sync Gradle
+### 3. Build & run
 
 ```bash
-./gradlew clean build
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Or in Android Studio: File → Sync Project with Gradle Files
+Or just hit Run in Android Studio.
 
-### Step 4: Run on Device
+### 4. First launch
 
-1. Connect Android device via USB
-2. Enable USB debugging in Developer Options
-3. Click Run (green play button) in Android Studio
-4. Select your device from the list
+1. Grant photo access on the Welcome screen.
+2. Indexing kicks off automatically as a foreground service — you'll see progress in the notification shade and as a banner in the app.
+3. Once the first cluster reaches `minClusterSize` faces (default 3), it appears as a tile on the People screen.
+4. Tap a tile → rename the person, merge with another cluster, or export an album.
 
-**Note:** Emulators work but will be slower. Physical device recommended.
+## Usage tips
 
-### Step 5: Grant Permissions
+**Clustering quality**
+- Default similarity thresholds (assign 0.6, merge 0.75) work well for MobileFaceNet weights trained on Asian / global faces. Tune in `FaceRecognitionConfig.kt` if you see over-merging or over-splitting.
+- Bump `DEFAULT_MIN_CLUSTER_SIZE` in Settings to hide singletons.
 
-On first launch:
-1. Tap "Grant Access"
-2. Allow photo access
-3. App loads your recent 100 photos for seed selection
+**Performance**
+- ~100 ms per photo on a mid-range device (Pixel 6 class): ~50 s for the most recent 500 photos, scales linearly.
+- Indexing runs inside a foreground `dataSync` service so it survives screen-off but yields to the OS when battery is low.
+- Tap *Re-scan entire library* in Settings to rebuild from scratch (e.g. after changing similarity thresholds).
 
-## Usage Guide
+**Privacy**
+- Network: there is no `INTERNET` permission on the indexer path. Crashlytics is the one exception and is opt-in for internal builds only.
+- Storage writes: limited to `Pictures/FaceAlbums/<Name>/` via scoped `MediaStore` inserts. The app cannot modify any other directory.
 
-### Basic Workflow
+## Database
 
-1. **Select Seeds** (1-3 photos)
-   - Choose photos with clear, front-facing shots of the person
-   - Different angles/lighting help improve matching
-   - Tap photos to select (max 3)
+| Table | Purpose |
+|---|---|
+| `photos` | One row per inspected photo (MediaStore id, dateModified, face count). Used for incremental scans. |
+| `faces` | One row per detected face — bounding box, embedding (BLOB, 512 floats little-endian), quality, FK to cluster. |
+| `clusters` | One row per person — display name (nullable until tagged), running-mean centroid, cover face, face count. |
+| `albums` | History of exports — which cluster was exported to which path, when, how many photos. |
 
-2. **Start Scanning**
-   - Tap "Continue"
-   - App scans most recent 500 photos
-   - Shows progress: "Processing 142 of 500"
-   - Can cancel anytime
+Schema files are exported under `app/schemas/` for migration safety.
 
-3. **Review Matches**
-   - Grid shows all potential matches
-   - Each photo has similarity % badge
-   - Tap photo to reject false positives (turns grayscale)
-   - Enter album name (default: "Person")
+## Testing
 
-4. **Export**
-   - Tap "Export N Photos"
-   - Photos copied to `Pictures/FaceAlbums/<Name>/`
-   - Visible in Google Photos, Files app, etc.
-
-### Tips for Best Results
-
-**Seed Selection:**
-- ✅ Clear, well-lit faces
-- ✅ Front-facing or slight angle
-- ✅ Face is at least 15% of image
-- ❌ Avoid sunglasses, masks, heavy shadows
-- ❌ Avoid group photos (uses largest face)
-
-**Threshold Tuning:**
-- Default: 0.6 (balanced)
-- Too many strangers? → Increase to 0.65-0.7
-- Missing obvious matches? → Decrease to 0.55
-
-**Performance:**
-- 500 photos ~= 1.5-2 minutes on mid-range device
-- Processes ~100ms per photo
-- Uses 4 CPU threads
-
-## Configuration
-
-### Adjust Scan Limit
-
-In `MainViewModel.kt` or `AppUiState.kt`:
-
-```kotlin
-data class AppUiState(
-    val maxPhotosToScan: Int = 500  // Change this
-)
+```bash
+./gradlew test
 ```
 
-### Adjust Similarity Threshold
+- `FaceClustererTest` — Robolectric + in-memory Room. Covers assign / dissimilar-split / `mergeClose` / `mergeUserRequested`.
+- `PhotoRepositoryTest` — MockK over the MediaStore copy pipeline; verifies mime detection, source-open failure, finalize failure, rollback, unique naming.
+- `SimilarityMatcherTest`, `FaceRecognitionConfigTest` — pure-JVM smoke tests.
 
-```kotlin
-data class AppUiState(
-    val similarityThreshold: Float = 0.6f  // 0.4 = loose, 0.8 = strict
-)
-```
+The full end-to-end loop has to be exercised on a real device — see *Release acceptance* below.
 
-### Change Model Input Size
+## Release build & distribution
 
-If using a different model (e.g., 160x160):
+### Release optimization policy
+- `release` builds must keep `isMinifyEnabled = true` and `isShrinkResources = true` (in `app/build.gradle.kts`).
+- Any shrink-related regression must be fixed by updating `app/proguard-rules.pro` — never by disabling minification.
+- Keep rules currently cover ML Kit, TensorFlow Lite, Compose metadata, Room entities/DAOs, and WorkManager workers.
 
-In `FacePreprocessor.kt`:
-```kotlin
-private const val MODEL_INPUT_SIZE = 160  // Change this
-```
-
-## Troubleshooting
-
-### Build Errors
-
-**"Cannot resolve symbol R"**
-- File → Invalidate Caches → Invalidate and Restart
-
-**"SDK version mismatch"**
-- File → Project Structure → ensure compileSdk = 34
-
-### Runtime Issues
-
-**"Permission denied" / No photos loading**
-- Go to Settings → Apps → FaceAlbum → Permissions
-- Grant "Photos and videos" permission
-
-**"No faces detected in seed photos"**
-- Ensure faces are visible and not too small
-- Try different seed photos with clearer faces
-
-**Scan finds 0 matches**
-- Check seed photos have detected faces
-- Try lowering similarity threshold
-- Ensure TFLite model is in assets folder
-
-**App crashes during scan**
-- Check Logcat for errors
-- Likely: Model file missing or wrong format
-- Or: Out of memory (try scanning fewer photos)
-
-### Model Issues
-
-**"Model not loaded" / Null embeddings**
-- Verify `mobile_face_net.tflite` exists in `app/src/main/assets/`
-- Check model input/output shapes match code
-- Try rebuilding: Build → Clean Project → Rebuild
-
-**Wrong results / Random matches**
-- Model might have wrong input size (check if 112x112 or 160x160)
-- Ensure normalization is correct ([-1, 1] range)
-
-## Performance Benchmarks
-
-Tested on Pixel 6 (mid-range device):
-
-| Operation | Time/Photo | 500 Photos |
-|-----------|-----------|------------|
-| Load + EXIF rotate | 30ms | 15s |
-| ML Kit detection | 40ms | 20s |
-| Crop + preprocess | 5ms | 2.5s |
-| TFLite embedding | 25ms | 12.5s |
-| **Total** | **~100ms** | **~50s** |
-
-Actual runtime: **1.5-2 minutes** (includes UI updates, coroutine overhead)
-
-## Privacy & Security
-
-- ✅ **100% On-Device** - No cloud uploads, no internet required
-- ✅ **No Analytics** - Zero tracking or telemetry
-- ✅ **No Permissions Abuse** - Only reads photos, doesn't write except to export folder
-- ✅ **Open Source** - Full code available for audit
-
-Photos never leave your device. All processing happens locally using ML Kit and TensorFlow Lite.
-
-## Known Limitations
-
-1. **No Persistence** - Scan results lost if app is killed (Room DB is stretch goal)
-2. **No Multi-Person** - One person per scan session
-3. **Fixed Threshold** - No UI slider (hardcoded 0.6)
-4. **Sequential Processing** - One photo at a time
-5. **Memory Constraints** - Cache cleared between runs
-
-## Future Roadmap
-
-### Phase 2 (Post-MVP)
-- [ ] Adjustable similarity slider in Review screen
-- [ ] Room database for scan result persistence
-- [ ] "Scan more" button to extend beyond 500
-- [ ] Thumbnail caching for faster grid loading
-
-### Phase 3 (Advanced)
-- [ ] Multi-person albums (separate seeds per person)
-- [ ] Background scanning via WorkManager
-- [ ] Face clustering (auto-group unknown faces)
-- [ ] Search by name
-
-## Privacy & Security
-
-- ✅ **100% On-Device** - No cloud uploads, no internet required
-- ✅ **No Analytics** - Zero tracking or telemetry
-- ✅ **No Permissions Abuse** - Only reads photos, doesn't write except to export folder
-- ✅ **Open Source** - Full code available for audit
-
-Photos never leave your device. All processing happens locally using ML Kit and TensorFlow Lite.
-
-## Acknowledgments
-
-- **ML Kit** - Google's on-device face detection
-- **TensorFlow Lite** - Efficient on-device inference
-- **MobileFaceNet** - Compact face recognition model
-- **Jetpack Compose** - Modern Android UI toolkit
-
----
-
-**Built as a weekend MVP project demonstrating on-device ML, Jetpack Compose, and modern Android architecture.**
-
-
-## Release Build & Distribution
-
-### 1) Release optimization policy
-- `release` builds must keep `isMinifyEnabled = true` and `isShrinkResources = true` in `app/build.gradle.kts`.
-- Any shrink-related regression must be fixed by updating `app/proguard-rules.pro` (never by disabling minification for release).
-
-### 2) ProGuard/R8 maintenance rules
-- Maintain explicit keep rules for reflection-sensitive surfaces:
-  - ML Kit (`com.google.mlkit.*`)
-  - TensorFlow Lite (`org.tensorflow.lite.*`)
-  - Jetpack Compose/Kotlin metadata where required by tooling or reflection.
-- Validate by running a release smoke test on a signed release artifact before shipping.
-
-### 3) Secure signing workflow (keystore outside repo)
+### Secure signing workflow (keystore outside repo)
 - Never commit keystore files or plaintext signing passwords.
-- Configure signing from environment/CI secrets only (example env vars):
+- Configure signing from environment / CI secrets only:
   - `ANDROID_KEYSTORE_BASE64`
   - `ANDROID_KEYSTORE_PASSWORD`
   - `ANDROID_KEY_ALIAS`
   - `ANDROID_KEY_PASSWORD`
-- CI should decode keystore at runtime, sign `release` builds, then securely delete temporary keystore files.
+- CI decodes the keystore at runtime, signs the `release` build, then securely deletes the temp keystore.
 
-### 4) Versioning process
-- `versionCode` must increment for every distributable release build.
-- `versionName` follows semantic versioning: `MAJOR.MINOR.PATCH`.
-  - `PATCH`: bugfixes/internal changes with no feature behavior change.
-  - `MINOR`: backward-compatible feature additions.
-  - `MAJOR`: incompatible UX/behavior changes.
+### Versioning
+- `versionCode` increments for every distributable build.
+- `versionName` follows `MAJOR.MINOR.PATCH`:
+  - `PATCH` — bugfix / internal change, no behavior change.
+  - `MINOR` — backward-compatible feature addition.
+  - `MAJOR` — incompatible UX or behavior changes.
 
-### 5) CI artifact archival
+### CI artifact archival
 For every release pipeline run, publish and retain:
-- Signed `.aab` (required)
-- Optional signed universal `.apk` (if generated)
-- `mapping.txt` from R8/ProGuard
+- Signed `.aab` (required for Play Store)
+- Optional signed universal `.apk`
+- `mapping.txt` from R8
 - SHA-256 checksums for every artifact
 - Build metadata (`git sha`, `versionCode`, `versionName`, build timestamp)
 
-### 6) Release acceptance criteria
-- CI produces a signed release AAB successfully.
-- Smoke test on the release build confirms no runtime regressions from shrinking/obfuscation.
+### Release acceptance criteria
+- CI produces a signed release AAB.
+- Manual smoke on a real device:
+  1. Fresh install → permission grant → indexing progress visible.
+  2. After ~100 photos, ≥1 well-formed cluster appears; clearly different people stay separate.
+  3. Rename a cluster, kill the app, re-open — name persists.
+  4. Export an album → photo count matches; album visible in Google Photos under `FaceAlbums/<Name>/`.
+  5. Add a new photo to the device → next scan picks it up incrementally.
+  6. Airplane mode the whole time → zero crashes, no failed UI states.
+
+## Privacy & security
+
+- **No internet**: face detection, embedding, clustering, and export all run on-device.
+- **No analytics**: only Firebase Crashlytics, gated to internal builds (`BuildConfig.DEBUG`).
+- **Minimal permissions**: `READ_MEDIA_IMAGES` (Android 13+) / `READ_EXTERNAL_STORAGE` (≤32), `POST_NOTIFICATIONS` for the indexer notification, and the foreground-service permissions WorkManager requires on Android 14+.
+- **Scoped writes**: only `Pictures/FaceAlbums/<Name>/` via `MediaStore`. The app cannot touch any other folder.
+- **Open source**: every line of the pipeline is auditable in this repo.
+
+## Roadmap
+
+Next on the list (not yet implemented):
+- [ ] Manually drag-and-drop a single face out of one cluster into another.
+- [ ] Quality-based cover-face upgrade as more high-quality crops arrive.
+- [ ] Periodic background re-index via `PeriodicWorkRequest` (currently on-demand only).
+- [ ] Multi-photo selection inside cluster detail (partial export).
+- [ ] Light/dark theme toggle in Settings (currently follows the system).
+- [ ] On-device LLM-powered "describe this person" caption (experimental).
+
+## Acknowledgments
+
+- **Google ML Kit** — on-device face detection.
+- **TensorFlow Lite** — efficient on-device inference.
+- **MobileFaceNet** — compact face recognition model.
+- **Jetpack Compose + Material 3** — UI toolkit.
+- **Room, WorkManager, Coil, Timber** — the boring-but-excellent foundation.
