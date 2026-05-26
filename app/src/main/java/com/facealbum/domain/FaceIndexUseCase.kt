@@ -1,6 +1,8 @@
 package com.facealbum.domain
 
+import android.app.ActivityManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Rect
 import androidx.room.withTransaction
 import com.facealbum.data.FaceDetectorWrapper
@@ -11,12 +13,27 @@ import com.facealbum.data.db.Embeddings
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.FaceEntity
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.data.db.ScanSessionEntity
+import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.model.PhotoInfo
 import com.facealbum.telemetry.CrashReporter
 import com.facealbum.util.BitmapLoader
 import com.facealbum.util.FacePreprocessor
+import com.google.mlkit.vision.face.Face
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapMerge
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
@@ -24,8 +41,20 @@ import timber.log.Timber
  * persists face embeddings, assigns each one to a cluster via [FaceClusterer],
  * and finally runs a merge pass to settle ordering effects.
  *
- * Designed to be called from a WorkManager worker. Emits progress through
- * [onProgress] so the foreground notification + UI can stay live.
+ * Pipelined for throughput:
+ *
+ *  - **Stage A** runs in parallel (concurrency = [DETECT_CONCURRENCY]):
+ *    bitmap decode + ML Kit face detection. ML Kit's detector has its own
+ *    internal thread pool and is safe to invoke from multiple coroutines;
+ *    bitmap decode is I/O-bound.
+ *  - **Stage B** runs strictly sequentially on a single-thread dispatcher:
+ *    TFLite embedding + Room transactions + cluster assignment. TFLite's
+ *    `Interpreter` is not thread-safe, and `FaceClusterer.assign` reads
+ *    every cluster centroid and updates one in place — concurrent assigns
+ *    would race on centroid updates.
+ *
+ *  Back-pressure is bounded by `.buffer(BUFFER_BETWEEN_STAGES)`, capping
+ *  in-flight bitmaps so memory stays predictable.
  */
 class FaceIndexUseCase(
     private val context: Context,
@@ -33,8 +62,15 @@ class FaceIndexUseCase(
     private val photoRepository: PhotoRepository = PhotoRepository(context),
     private val detector: FaceDetectorWrapper = FaceDetectorWrapper(context),
     private val embedder: FaceEmbedder = FaceEmbedder(context),
-    private val clusterer: FaceClusterer = FaceClusterer(db.clusterDao(), db.faceDao())
+    private val prefs: UserPreferences = UserPreferences.get(context)
 ) {
+
+    /**
+     * Constructed at the start of every [run] from the user's current
+     * threshold preferences. Re-created (rather than reused across calls) so
+     * threshold changes between scans take effect immediately.
+     */
+    private lateinit var clusterer: FaceClusterer
 
     data class Progress(
         val processed: Int,
@@ -47,6 +83,7 @@ class FaceIndexUseCase(
      * @return total number of new faces persisted.
      * @throws ModelNotReadyException when the TFLite model is missing/corrupt.
      */
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     suspend fun run(
         forceFullRescan: Boolean = false,
         onProgress: suspend (Progress) -> Unit = {}
@@ -56,42 +93,141 @@ class FaceIndexUseCase(
             is ModelState.Ready -> Unit
         }
 
+        // Mop up any "running" rows orphaned by a previous process death so
+        // the session-history view stays honest. Cheap one-shot UPDATE.
+        db.scanSessionDao().markOrphansCancelled(System.currentTimeMillis())
+
+        val assignT = prefs.assignThreshold.first()
+        val mergeT = prefs.mergeThreshold.first()
+        clusterer = FaceClusterer(db.clusterDao(), db.faceDao(), assignT, mergeT)
+
         val lastIndexed = if (forceFullRescan) 0L else db.photoDao().lastIndexedDateModified() ?: 0L
         Timber.i("Index pass start, lastIndexedDateModified=$lastIndexed, forceFullRescan=$forceFullRescan")
 
+        val sessionId = db.scanSessionDao().insert(
+            ScanSessionEntity(
+                startedAt = System.currentTimeMillis(),
+                endedAt = null,
+                status = ScanSessionEntity.STATUS_RUNNING,
+                photosScanned = 0,
+                facesAdded = 0,
+                errorMessage = null,
+                forceFullRescan = forceFullRescan
+            )
+        )
+
         val photos = photoRepository.queryPhotosModifiedSince(lastIndexed)
         Timber.i("Found ${photos.size} photo(s) to index")
+        val total = photos.size
+
+        // Stage B runs on a dispatcher with parallelism=1 so TFLite + clusterer
+        // see strictly sequential calls. Use Default (CPU) rather than IO since
+        // the work is CPU-bound (model inference + cosine math).
+        val embedDispatcher = Dispatchers.Default.limitedParallelism(1)
+
+        // On low-RAM devices keep stage A serial; even two in-flight 1024-px
+        // bitmaps can push older phones into GC pressure.
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val detectConcurrency = if (activityManager?.isLowRamDevice == true) 1 else DETECT_CONCURRENCY
+        Timber.d("Scan pipeline: detectConcurrency=$detectConcurrency")
 
         var totalFacesAdded = 0
         var processed = 0
+        var finalStatus = ScanSessionEntity.STATUS_SUCCESS
+        var finalError: String? = null
 
-        for (photo in photos) {
-            currentCoroutineContext().ensureActive()
-            try {
-                val faceCount = indexPhoto(photo)
-                totalFacesAdded += faceCount
-            } catch (t: Throwable) {
-                Timber.e(t, "Failed to index photo ${photo.uri}")
-                CrashReporter.recordNonFatal(
-                    throwable = t,
-                    source = "index_photo",
-                    context = mapOf("photo_id" to photo.id.toString())
-                )
-            }
-            processed += 1
-            if (processed % 5 == 0 || processed == photos.size) {
-                val clusters = db.clusterDao().all().size
-                onProgress(Progress(processed, photos.size, totalFacesAdded, clusters))
-            }
+        try {
+            photos.asFlow()
+                .flatMapMerge(concurrency = detectConcurrency) { photo ->
+                    flow {
+                        currentCoroutineContext().ensureActive()
+                        try {
+                            val bitmap = BitmapLoader.loadScaled(context, photo.uri)
+                            val faces = bitmap?.let { detector.detectAllFaces(it) } ?: emptyList()
+                            emit(DetectResult(photo, bitmap, faces, error = null))
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            emit(DetectResult(photo, bitmap = null, faces = emptyList(), error = t))
+                        }
+                    }
+                }
+                .flowOn(Dispatchers.IO)
+                .buffer(capacity = BUFFER_BETWEEN_STAGES)
+                .collect { result ->
+                    currentCoroutineContext().ensureActive()
+                    if (result.error != null) {
+                        Timber.e(result.error, "Failed to decode/detect photo ${result.photo.uri}")
+                        CrashReporter.recordNonFatal(
+                            throwable = result.error,
+                            source = "detect_photo",
+                            context = mapOf("photo_id" to result.photo.id.toString())
+                        )
+                    } else {
+                        try {
+                            withContext(embedDispatcher) {
+                                totalFacesAdded += indexFromDetection(result)
+                            }
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            Timber.e(t, "Failed to embed/persist photo ${result.photo.uri}")
+                            CrashReporter.recordNonFatal(
+                                throwable = t,
+                                source = "embed_photo",
+                                context = mapOf("photo_id" to result.photo.id.toString())
+                            )
+                        }
+                    }
+                    processed += 1
+                    if (processed % 5 == 0 || processed == total) {
+                        val clusters = db.clusterDao().all().size
+                        onProgress(Progress(processed, total, totalFacesAdded, clusters))
+                    }
+                }
+        } catch (ce: CancellationException) {
+            finalStatus = ScanSessionEntity.STATUS_CANCELLED
+            // Record what we finished before bubbling, then re-throw so WorkManager
+            // sees the cancellation.
+            db.scanSessionDao().finish(
+                id = sessionId,
+                endedAt = System.currentTimeMillis(),
+                status = finalStatus,
+                photosScanned = processed,
+                facesAdded = totalFacesAdded,
+                errorMessage = null
+            )
+            throw ce
+        } catch (t: Throwable) {
+            finalStatus = ScanSessionEntity.STATUS_FAILED
+            finalError = t.message
+            db.scanSessionDao().finish(
+                id = sessionId,
+                endedAt = System.currentTimeMillis(),
+                status = finalStatus,
+                photosScanned = processed,
+                facesAdded = totalFacesAdded,
+                errorMessage = finalError
+            )
+            throw t
         }
 
         Timber.i("Index pass done. Cleaning up empty clusters + merge pass.")
         db.clusterDao().deleteEmpty()
         clusterer.mergeClose()
 
+        db.scanSessionDao().finish(
+            id = sessionId,
+            endedAt = System.currentTimeMillis(),
+            status = finalStatus,
+            photosScanned = total,
+            facesAdded = totalFacesAdded,
+            errorMessage = null
+        )
+
         val finalProgress = Progress(
-            processed = photos.size,
-            total = photos.size,
+            processed = total,
+            total = total,
             facesFound = totalFacesAdded,
             clustersTotal = db.clusterDao().all().size
         )
@@ -100,26 +236,56 @@ class FaceIndexUseCase(
     }
 
     /**
-     * The whole photo's work runs inside one Room transaction so a crash or
-     * cancellation between face insert and cluster assignment cannot leave
-     * inflated cluster counts or unassigned faces.
+     * Stage B: take an already-decoded bitmap + detected faces, embed each
+     * face, persist face rows, and assign them to clusters — all in a single
+     * Room transaction so a cancellation can't leave partial state.
      */
-    private suspend fun indexPhoto(photo: PhotoInfo): Int = db.withTransaction {
-        // Skip if MediaStore id already present AND its modification date didn't change.
-        val existing = db.photoDao().findByMediaStoreId(photo.id)
-        if (existing != null && existing.dateModified >= photo.dateModified) {
-            return@withTransaction 0
-        }
+    private suspend fun indexFromDetection(result: DetectResult): Int {
+        val photo = result.photo
+        val bitmap = result.bitmap
+        val faces = result.faces
 
-        val now = System.currentTimeMillis()
-        val bitmap = BitmapLoader.loadScaled(context, photo.uri)
+        return db.withTransaction {
+            val existing = db.photoDao().findByMediaStoreId(photo.id)
+            if (existing != null && existing.dateModified >= photo.dateModified) {
+                // Up-to-date already; nothing to do. Defends against duplicate
+                // photos sharing the same DATE_MODIFIED that slip through the
+                // incremental query.
+                return@withTransaction 0
+            }
 
-        if (bitmap == null) {
-            // Persist a faceCount=0 row anyway so `lastIndexedDateModified` advances
-            // past this photo and we don't re-attempt every pass. Decode failure is
-            // usually permanent (corrupt file, unsupported format).
-            Timber.w("Could not load bitmap for photo ${photo.uri}; recording empty entry")
-            if (existing == null) {
+            val now = System.currentTimeMillis()
+
+            if (bitmap == null) {
+                // Persist a faceCount=0 row anyway so `lastIndexedDateModified` advances.
+                Timber.w("Could not load bitmap for photo ${photo.uri}; recording empty entry")
+                if (existing == null) {
+                    db.photoDao().insert(
+                        PhotoEntity(
+                            mediaStoreId = photo.id,
+                            uri = photo.uri.toString(),
+                            displayName = photo.displayName,
+                            dateTaken = photo.dateTaken,
+                            dateModified = photo.dateModified,
+                            processedAt = now,
+                            faceCount = 0
+                        )
+                    )
+                } else {
+                    db.photoDao().updateMetadata(
+                        id = existing.id,
+                        uri = photo.uri.toString(),
+                        displayName = photo.displayName,
+                        dateTaken = photo.dateTaken,
+                        dateModified = photo.dateModified,
+                        processedAt = now,
+                        faceCount = 0
+                    )
+                }
+                return@withTransaction 0
+            }
+
+            val photoRowId = if (existing == null) {
                 db.photoDao().insert(
                     PhotoEntity(
                         mediaStoreId = photo.id,
@@ -128,10 +294,19 @@ class FaceIndexUseCase(
                         dateTaken = photo.dateTaken,
                         dateModified = photo.dateModified,
                         processedAt = now,
-                        faceCount = 0
+                        faceCount = faces.size
                     )
                 )
             } else {
+                // Photo contents changed: drop the old face rows and rebuild the
+                // centroid / cover face on every cluster they belonged to.
+                val oldClusterIds = db.faceDao().facesForPhoto(existing.id)
+                    .mapNotNull { it.clusterId }
+                    .toSet()
+                db.faceDao().deleteFacesForPhoto(existing.id)
+                for (cid in oldClusterIds) {
+                    clusterer.recomputeFromFaces(cid)
+                }
                 db.photoDao().updateMetadata(
                     id = existing.id,
                     uri = photo.uri.toString(),
@@ -139,76 +314,39 @@ class FaceIndexUseCase(
                     dateTaken = photo.dateTaken,
                     dateModified = photo.dateModified,
                     processedAt = now,
-                    faceCount = 0
-                )
-            }
-            return@withTransaction 0
-        }
-
-        val faces = detector.detectAllFaces(bitmap)
-
-        val photoRowId = if (existing == null) {
-            db.photoDao().insert(
-                PhotoEntity(
-                    mediaStoreId = photo.id,
-                    uri = photo.uri.toString(),
-                    displayName = photo.displayName,
-                    dateTaken = photo.dateTaken,
-                    dateModified = photo.dateModified,
-                    processedAt = now,
                     faceCount = faces.size
                 )
-            )
-        } else {
-            // Photo contents changed: drop the old face rows and rebuild the centroid
-            // / cover face on every cluster they belonged to. Empty clusters are pruned
-            // at the end of the batch.
-            val oldClusterIds = db.faceDao().facesForPhoto(existing.id)
-                .mapNotNull { it.clusterId }
-                .toSet()
-            db.faceDao().deleteFacesForPhoto(existing.id)
-            for (cid in oldClusterIds) {
-                clusterer.recomputeFromFaces(cid)
+                existing.id
             }
-            db.photoDao().updateMetadata(
-                id = existing.id,
-                uri = photo.uri.toString(),
-                displayName = photo.displayName,
-                dateTaken = photo.dateTaken,
-                dateModified = photo.dateModified,
-                processedAt = now,
-                faceCount = faces.size
-            )
-            existing.id
-        }
 
-        if (faces.isEmpty()) return@withTransaction 0
+            if (faces.isEmpty()) return@withTransaction 0
 
-        val photoArea = (bitmap.width * bitmap.height).coerceAtLeast(1).toFloat()
-        var added = 0
-        for (face in faces) {
-            val embedding = computeEmbedding(bitmap, face.boundingBox) ?: continue
-            val quality = ((face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea)
-                .coerceIn(0f, 1f)
-            val faceRowId = db.faceDao().insert(
-                FaceEntity(
-                    photoId = photoRowId,
-                    clusterId = null,
-                    bboxLeft = face.boundingBox.left,
-                    bboxTop = face.boundingBox.top,
-                    bboxRight = face.boundingBox.right,
-                    bboxBottom = face.boundingBox.bottom,
-                    embedding = Embeddings.toBytes(embedding),
-                    quality = quality
+            val photoArea = (bitmap.width * bitmap.height).coerceAtLeast(1).toFloat()
+            var added = 0
+            for (face in faces) {
+                val embedding = computeEmbedding(bitmap, face.boundingBox) ?: continue
+                val quality = ((face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea)
+                    .coerceIn(0f, 1f)
+                val faceRowId = db.faceDao().insert(
+                    FaceEntity(
+                        photoId = photoRowId,
+                        clusterId = null,
+                        bboxLeft = face.boundingBox.left,
+                        bboxTop = face.boundingBox.top,
+                        bboxRight = face.boundingBox.right,
+                        bboxBottom = face.boundingBox.bottom,
+                        embedding = Embeddings.toBytes(embedding),
+                        quality = quality
+                    )
                 )
-            )
-            clusterer.assign(faceRowId, embedding, quality)
-            added += 1
+                clusterer.assign(faceRowId, embedding, quality)
+                added += 1
+            }
+            added
         }
-        added
     }
 
-    private fun computeEmbedding(bitmap: android.graphics.Bitmap, bbox: Rect): FloatArray? {
+    private fun computeEmbedding(bitmap: Bitmap, bbox: Rect): FloatArray? {
         val preprocessed = FacePreprocessor.cropAndPreprocess(bitmap, bbox)
         return embedder.getEmbedding(preprocessed)
     }
@@ -218,5 +356,25 @@ class FaceIndexUseCase(
         embedder.close()
     }
 
+    private data class DetectResult(
+        val photo: PhotoInfo,
+        val bitmap: Bitmap?,
+        val faces: List<Face>,
+        val error: Throwable?
+    )
+
     class ModelNotReadyException(message: String) : RuntimeException(message)
+
+    companion object {
+        /** Parallelism for stage A (decode + ML Kit detect). */
+        private const val DETECT_CONCURRENCY = 2
+
+        /**
+         * Capacity of the channel between stage A and stage B. Combined with
+         * [DETECT_CONCURRENCY] this caps in-flight bitmaps at roughly
+         * `DETECT_CONCURRENCY + BUFFER_BETWEEN_STAGES`, which at the project's
+         * 1024-px max dimension stays well under typical heap budgets.
+         */
+        private const val BUFFER_BETWEEN_STAGES = 2
+    }
 }

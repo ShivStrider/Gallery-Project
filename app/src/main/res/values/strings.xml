@@ -33,6 +33,11 @@
     <string name="notif_text_starting">Starting…</string>
     <string name="notif_text_progress">Scanned %1$d of %2$d photos</string>
 
+    <!-- Reclustering notification -->
+    <string name="notif_channel_reclustering">Re-grouping</string>
+    <string name="notif_title_reclustering">Re-grouping faces</string>
+    <string name="notif_text_recluster_progress">Re-grouped %1$d of %2$d faces</string>
+
     <!-- People / cluster screens -->
     <string name="people_title">People</string>
     <string name="people_empty_title">No people yet</string>
@@ -56,6 +61,12 @@
     <string name="settings_section_data">Data</string>
     <string name="settings_min_cluster_size">Minimum cluster size</string>
     <string name="settings_min_cluster_size_body">Hide groups with fewer faces than this.</string>
+    <string name="settings_threshold">Grouping strictness</string>
+    <string name="settings_threshold_value">%.2f</string>
+    <string name="settings_threshold_body">Looser = more photos grouped together (some mistakes). Stricter = fewer mistakes, may split the same person across groups.</string>
+    <string name="settings_recluster">Re-group photos now</string>
+    <string name="settings_recluster_body">Apply the current strictness to all faces already scanned. No re-scan of your photos.</string>
+    <string name="settings_recluster_running">Re-grouping… %1$d / %2$d</string>
     <string name="settings_rescan_all">Re-scan entire library</string>
     <string name="settings_rescan_all_body">Re-process every photo from scratch.</string>
     <string name="settings_delete_index">Delete face index</string>

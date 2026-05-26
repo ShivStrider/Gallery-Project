@@ -9,9 +9,11 @@ import com.facealbum.config.FaceRecognitionConfig
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.domain.ClusterAlbumExportUseCase
 import com.facealbum.domain.FaceClusterer
 import com.facealbum.work.FaceIndexWorker
+import com.facealbum.work.ReclusterWorker
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,19 +35,41 @@ import timber.log.Timber
  * progress is read off WorkManager's `Flow<WorkInfo>`. Clusters live in Room
  * and surface through [ClusterDao.summariesAtLeast] so the People grid stays
  * in sync as the worker writes new faces.
+ *
+ * User preferences (threshold, min cluster size) are durable via [UserPreferences].
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
+    private val prefs: UserPreferences = UserPreferences.get(application)
     private val clusterer = FaceClusterer(db.clusterDao(), db.faceDao())
     private val exportUseCase = ClusterAlbumExportUseCase(application)
 
-    private val _minClusterSize = MutableStateFlow(FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE)
-    val minClusterSize: StateFlow<Int> = _minClusterSize.asStateFlow()
+    val minClusterSize: StateFlow<Int> = prefs.minClusterSize
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE
+        )
+
+    /**
+     * Persisted match strictness. Source of truth is DataStore. While the user
+     * drags the slider we mirror the latest value in [_pendingAssignThreshold]
+     * for snappy UI feedback and commit on release.
+     */
+    val assignThreshold: StateFlow<Float> = prefs.assignThreshold
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            FaceRecognitionConfig.CLUSTER_ASSIGN_THRESHOLD
+        )
+
+    private val _pendingAssignThreshold = MutableStateFlow<Float?>(null)
+    val pendingAssignThreshold: StateFlow<Float?> = _pendingAssignThreshold.asStateFlow()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val clusters: StateFlow<List<ClusterSummary>> =
-        _minClusterSize
+        minClusterSize
             .flatMapLatest { min -> db.clusterDao().summariesAtLeast(min) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -86,6 +110,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             IndexProgress(false, 0, 0, 0, 0)
         )
 
+    data class ReclusterProgress(
+        val running: Boolean,
+        val done: Int,
+        val total: Int,
+        val clusters: Int,
+        val errorMessage: String? = null
+    )
+
+    private val reclusterWorkFlow: Flow<List<WorkInfo>> =
+        WorkManager.getInstance(application)
+            .getWorkInfosForUniqueWorkFlow(ReclusterWorker.UNIQUE_WORK_NAME)
+
+    val reclusterProgress: StateFlow<ReclusterProgress> = reclusterWorkFlow
+        .map { infos ->
+            val info = infos.firstOrNull()
+                ?: return@map ReclusterProgress(false, 0, 0, 0)
+            val data = if (info.state.isFinished) info.outputData else info.progress
+            val running = info.state == WorkInfo.State.RUNNING ||
+                info.state == WorkInfo.State.ENQUEUED
+            ReclusterProgress(
+                running = running,
+                done = data.getInt(ReclusterWorker.KEY_PROGRESS_DONE, 0),
+                total = data.getInt(ReclusterWorker.KEY_PROGRESS_TOTAL, 0),
+                clusters = data.getInt(ReclusterWorker.KEY_PROGRESS_CLUSTERS, 0),
+                errorMessage = if (info.state == WorkInfo.State.FAILED)
+                    info.outputData.getString(ReclusterWorker.KEY_ERROR_MESSAGE)
+                else null
+            )
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            ReclusterProgress(false, 0, 0, 0)
+        )
+
     private val _selectedCluster = MutableStateFlow<ClusterDetailState?>(null)
     val selectedCluster: StateFlow<ClusterDetailState?> = _selectedCluster.asStateFlow()
 
@@ -120,7 +179,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setMinClusterSize(size: Int) {
-        _minClusterSize.value = size.coerceAtLeast(1)
+        viewModelScope.launch {
+            prefs.setMinClusterSize(size.coerceAtLeast(1))
+        }
+    }
+
+    /** Snappy local mirror for slider dragging; not yet persisted. */
+    fun previewAssignThreshold(value: Float) {
+        _pendingAssignThreshold.value = value
+    }
+
+    /** Commit the dragged threshold to DataStore and discard the pending mirror. */
+    fun commitAssignThreshold() {
+        val pending = _pendingAssignThreshold.value ?: return
+        viewModelScope.launch {
+            prefs.setAssignThreshold(pending)
+            _pendingAssignThreshold.value = null
+        }
+    }
+
+    fun recluster() {
+        ReclusterWorker.enqueue(getApplication())
     }
 
     fun loadCluster(clusterId: Long) {

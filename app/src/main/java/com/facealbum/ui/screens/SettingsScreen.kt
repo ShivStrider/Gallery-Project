@@ -21,13 +21,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.facealbum.MainViewModel
 import com.facealbum.R
+import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.ui.theme.Spacing
 
 @Composable
 fun SettingsScreen(
     minClusterSize: Int,
     onMinClusterSizeChange: (Int) -> Unit,
+    assignThreshold: Float,
+    pendingAssignThreshold: Float?,
+    reclusterProgress: MainViewModel.ReclusterProgress,
+    onPreviewThreshold: (Float) -> Unit,
+    onCommitThreshold: () -> Unit,
+    onRecluster: () -> Unit,
     onRescanAll: () -> Unit,
     onDeleteIndex: () -> Unit,
     onBack: () -> Unit
@@ -65,6 +73,16 @@ fun SettingsScreen(
             MinClusterSizeRow(
                 value = minClusterSize,
                 onValueChange = onMinClusterSizeChange
+            )
+            ThresholdRow(
+                committed = assignThreshold,
+                pending = pendingAssignThreshold,
+                onPreview = onPreviewThreshold,
+                onCommit = onCommitThreshold
+            )
+            ReclusterRow(
+                progress = reclusterProgress,
+                onClick = onRecluster
             )
 
             Spacer(Modifier.height(Spacing.md))
@@ -184,6 +202,84 @@ private fun MinClusterSizeRow(value: Int, onValueChange: (Int) -> Unit) {
             )
         }
     }
+}
+
+@Composable
+private fun ThresholdRow(
+    committed: Float,
+    pending: Float?,
+    onPreview: (Float) -> Unit,
+    onCommit: () -> Unit
+) {
+    val current = pending ?: committed
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(modifier = Modifier.padding(Spacing.md)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Tune,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.settings_threshold),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        stringResource(R.string.settings_threshold_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_threshold_value, current),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.sm))
+            Slider(
+                value = current,
+                onValueChange = onPreview,
+                onValueChangeFinished = onCommit,
+                valueRange = UserPreferences.MIN_ASSIGN..UserPreferences.MAX_ASSIGN
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReclusterRow(
+    progress: MainViewModel.ReclusterProgress,
+    onClick: () -> Unit
+) {
+    val title = stringResource(R.string.settings_recluster)
+    val subtitle = if (progress.running && progress.total > 0) {
+        stringResource(R.string.settings_recluster_running, progress.done, progress.total)
+    } else {
+        stringResource(R.string.settings_recluster_body)
+    }
+    SettingRow(
+        icon = Icons.Outlined.Refresh,
+        title = title,
+        subtitle = subtitle,
+        onClick = if (progress.running) null else onClick
+    )
 }
 
 @Composable
