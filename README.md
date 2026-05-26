@@ -112,6 +112,8 @@ app/src/main/java/com/facealbum/
 
 ## Setup
 
+> See [`INSTALL.md`](./INSTALL.md) for the full step-by-step install + first-run walkthrough (including how to source the TFLite model and verify the app works end-to-end). The notes below are a quick reference.
+
 ### Prerequisites
 - Android Studio Hedgehog (2023.1.1) or newer
 - Android SDK 34
