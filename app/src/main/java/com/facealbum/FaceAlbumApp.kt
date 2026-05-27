@@ -19,12 +19,21 @@ class FaceAlbumApp : Application() {
             Timber.plant(Timber.DebugTree())
         }
 
-        // Internal builds collect crash reports for triage.
-        val isInternalBuild = BuildConfig.DEBUG
-        CrashReporter.initialize(isInternalBuild)
+        // Firebase/Crashlytics may not be available in tests or when google-services
+        // is misconfigured. Swallow init failures so the app still launches.
+        try {
+            CrashReporter.initialize(isInternalBuild = BuildConfig.DEBUG)
+        } catch (t: Throwable) {
+            Timber.w(t, "CrashReporter init failed; continuing without crash reporting")
+        }
 
-        // Keep face index warm with periodic incremental scans.
-        FaceIndexWorker.enqueuePeriodic(this)
+        // WorkManager auto-init can fail under unit-test classloaders. Don't let
+        // background scheduling block app startup.
+        try {
+            FaceIndexWorker.enqueuePeriodic(this)
+        } catch (t: Throwable) {
+            Timber.w(t, "Periodic indexer enqueue failed; manual scan still available")
+        }
 
         Timber.d("FaceAlbum application initialized")
     }

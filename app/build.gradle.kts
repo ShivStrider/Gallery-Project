@@ -179,5 +179,4 @@ dependencies {
     testImplementation("androidx.room:room-testing:2.6.1")
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core-ktx:1.5.0")
-    testImplementation("androidx.work:work-testing:2.9.0")
 }
