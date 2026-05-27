@@ -25,6 +25,30 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Stub google-services.json for CI
+        run: |
+          cat > app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "facealbum-ci",
+              "storage_bucket": "facealbum-ci.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "com.facealbum" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyA-CI-STUB-KEY-NOT-FOR-PROD-0000000" } ],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
       - name: Run unit tests
         run: ./gradlew test --stacktrace
 
