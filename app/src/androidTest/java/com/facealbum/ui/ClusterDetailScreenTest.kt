@@ -1,5 +1,6 @@
 package com.facealbum.ui
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -151,8 +152,39 @@ class ClusterDetailScreenTest {
                 )
             }
         }
-        composeTestRule.onNodeWithText("Export 1 selected").assertIsDisplayed()
+        // Banner title shows "N selected"
+        composeTestRule.onNodeWithText("1 selected").assertIsDisplayed()
+        // "Move to person…" appears when exactly 1 photo is selected
+        composeTestRule.onNodeWithText("Move to person…").assertIsDisplayed()
+        // Cancel button in the banner
         composeTestRule.onNodeWithText("Cancel selection").assertIsDisplayed()
+        // Hero button also reflects the selection count
+        composeTestRule.onNodeWithText("Export 1 selected").assertIsDisplayed()
+    }
+
+    @Test
+    fun selectionBanner_moveToHidden_withMultipleSelected() {
+        composeTestRule.setContent {
+            FaceAlbumTheme {
+                ClusterDetailScreen(
+                    state = makeState("Heidi", photoCount = 3),
+                    mergeCandidates = emptyList(),
+                    selectedPhotoIds = setOf(1L, 2L),
+                    onBack = {},
+                    onRename = {},
+                    onExport = {},
+                    onMerge = {},
+                    onTogglePhotoSelection = {},
+                    onClearSelection = {},
+                    onExportSelected = {},
+                    onReassignPhoto = { _, _ -> }
+                )
+            }
+        }
+        composeTestRule.onNodeWithText("2 selected").assertIsDisplayed()
+        // "Move to person…" is hidden when more than one photo is selected
+        composeTestRule.onNodeWithText("Move to person…", useUnmergedTree = true)
+            .assertDoesNotExist()
     }
 
     @Test

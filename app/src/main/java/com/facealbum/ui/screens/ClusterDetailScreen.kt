@@ -82,7 +82,7 @@ fun ClusterDetailScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
-            // Selection mode banner
+            // Selection mode banner — shown as soon as one photo is long-pressed.
             if (isSelecting) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -91,15 +91,26 @@ fun ClusterDetailScreen(
                     Row(
                         modifier = Modifier
                             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = stringResource(R.string.cluster_detail_export_selected, selectedPhotoIds.size),
+                            text = stringResource(R.string.cluster_detail_select_mode, selectedPhotoIds.size),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.weight(1f)
                         )
+                        // "Move to" only available when a single photo is selected (reassign
+                        // acts on one photo's detected faces at a time).
+                        if (selectedPhotoIds.size == 1) {
+                            TextButton(onClick = {
+                                reassignPhotoId = selectedPhotoIds.first()
+                            }) {
+                                Text(
+                                    stringResource(R.string.cluster_detail_move_to),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
                         TextButton(onClick = {
                             val defaultName = state.displayName.orEmpty()
                             onExportSelected(defaultName)
@@ -140,15 +151,17 @@ fun ClusterDetailScreen(
                         isSelecting = isSelecting,
                         onClick = {
                             if (isSelecting) {
+                                // In selection mode a tap toggles the photo's selected state.
                                 onTogglePhotoSelection(photo.id)
                             }
+                            // Outside selection mode, a plain tap does nothing here (a future
+                            // full-screen viewer could be opened instead).
                         },
                         onLongClick = {
-                            if (!isSelecting) {
-                                reassignPhotoId = photo.id
-                            } else {
-                                onTogglePhotoSelection(photo.id)
-                            }
+                            // Long-press always enters/continues selection mode regardless of
+                            // current state. This is the only entry point into selection mode,
+                            // which makes it discoverable and consistent with Android norms.
+                            onTogglePhotoSelection(photo.id)
                         }
                     )
                 }
