@@ -102,11 +102,10 @@ android {
     }
 }
 
-tasks.matching {
-    it.name.contains("Release", ignoreCase = true) || it.name.contains("Bundle", ignoreCase = true)
-}.configureEach {
-    dependsOn("verifyFaceModelPresent")
-}
+// Only gate the actual installable/distributable outputs on the model asset —
+// not every task whose name happens to contain "Release" (test, lint, etc.).
+tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease") }
+    .configureEach { dependsOn("verifyFaceModelPresent") }
 
 dependencies {
     // Core

@@ -52,6 +52,17 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test --stacktrace
 
+      - name: Dump failing test reports
+        if: failure()
+        run: |
+          echo "=== Failed test summaries ==="
+          find app/build/test-results -name 'TEST-*.xml' -print0 2>/dev/null \
+            | xargs -0 -r grep -l '<failure\|<error' \
+            | while read -r f; do
+                echo "----- $f -----"
+                cat "$f"
+              done
+
       - name: Run lint
         run: ./gradlew lint --stacktrace
 
