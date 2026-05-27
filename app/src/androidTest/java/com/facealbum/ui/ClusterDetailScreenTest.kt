@@ -11,8 +11,6 @@ import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.PhotoEntity
 import com.facealbum.ui.screens.ClusterDetailScreen
 import com.facealbum.ui.theme.FaceAlbumTheme
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith

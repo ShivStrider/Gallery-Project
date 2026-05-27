@@ -22,7 +22,6 @@
     <string name="export_complete_count_label">photos saved</string>
     <string name="export_complete_location">Find them in Pictures › FaceAlbums › %1$s</string>
     <string name="export_success_icon">Success</string>
-    <string name="export_success_format">Exported %1$d photos to Pictures/FaceAlbums/%2$s</string>
 
     <!-- Errors -->
     <string name="ok">OK</string>

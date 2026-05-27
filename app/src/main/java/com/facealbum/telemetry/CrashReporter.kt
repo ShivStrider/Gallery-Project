@@ -26,8 +26,4 @@ object CrashReporter {
         }
         crashlytics.recordException(throwable)
     }
-
-    fun setKey(key: String, value: String) {
-        crashlytics.setCustomKey(key, value)
-    }
 }

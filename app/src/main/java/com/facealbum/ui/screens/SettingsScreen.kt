@@ -39,8 +39,8 @@ fun SettingsScreen(
     onRescanAll: () -> Unit,
     onDeleteIndex: () -> Unit,
     onBack: () -> Unit,
-    themePreference: com.facealbum.data.prefs.ThemePreference = com.facealbum.data.prefs.ThemePreference.SYSTEM,
-    onThemeChange: (com.facealbum.data.prefs.ThemePreference) -> Unit = {}
+    themePreference: com.facealbum.data.prefs.ThemePreference,
+    onThemeChange: (com.facealbum.data.prefs.ThemePreference) -> Unit
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
 
