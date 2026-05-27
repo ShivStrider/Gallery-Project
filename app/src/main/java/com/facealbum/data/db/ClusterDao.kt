@@ -62,7 +62,4 @@ interface ClusterDao {
 
     @Query("DELETE FROM clusters")
     suspend fun deleteAll()
-
-    @Query("UPDATE clusters SET personId = :personId, updatedAt = :now WHERE id = :clusterId")
-    suspend fun setPerson(clusterId: Long, personId: Long?, now: Long)
 }

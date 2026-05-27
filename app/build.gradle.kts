@@ -43,6 +43,23 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            // Point at the location where `decodeReleaseKeystore` (registered
+            // below) will materialise the keystore. AGP only validates that
+            // storeFile exists at signing time, not at configuration time, so
+            // we don't decode/write the base64 blob during every `./gradlew
+            // test`, IDE sync, or lint run — only when an actual release task
+            // executes.
+            if (System.getenv("ANDROID_KEYSTORE_BASE64") != null) {
+                storeFile = layout.buildDirectory.file("keystore.jks").get().asFile
+            }
+            storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: ""
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -51,6 +68,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (System.getenv("ANDROID_KEYSTORE_BASE64") != null)
+                signingConfigs.getByName("release")
+            else
+                signingConfigs.getByName("debug")
         }
     }
 
@@ -82,9 +103,30 @@ android {
     }
 }
 
-tasks.matching { it.name in setOf("preBuild", "assemble", "bundle") }.configureEach {
-    dependsOn("verifyFaceModelPresent")
+// Materialise the release keystore from $ANDROID_KEYSTORE_BASE64 only when an
+// actual release task is about to run. Configuration time stays cheap (no
+// disk write on test/lint/IDE-sync runs); the decoded keystore is also kept
+// out of any non-release artefacts.
+tasks.register("decodeReleaseKeystore") {
+    val keystoreBase64 = System.getenv("ANDROID_KEYSTORE_BASE64")
+    val keystoreFile = layout.buildDirectory.file("keystore.jks")
+    onlyIf { keystoreBase64 != null }
+    outputs.file(keystoreFile)
+    doLast {
+        val out = keystoreFile.get().asFile
+        out.parentFile.mkdirs()
+        out.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
+    }
 }
+
+// Only gate the actual installable/distributable outputs on the model asset —
+// not every task whose name happens to contain "Release" (test, lint, etc.).
+// The same gate also wires the lazy keystore decode in front of release builds.
+tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease") }
+    .configureEach {
+        dependsOn("verifyFaceModelPresent")
+        dependsOn("decodeReleaseKeystore")
+    }
 
 dependencies {
     // Core
@@ -135,11 +177,17 @@ dependencies {
     // Firebase BOM
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
     implementation("com.google.firebase:firebase-crashlytics-ktx")
-    implementation("com.google.firebase:firebase-analytics-ktx")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

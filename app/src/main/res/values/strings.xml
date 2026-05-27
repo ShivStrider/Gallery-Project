@@ -22,7 +22,6 @@
     <string name="export_complete_count_label">photos saved</string>
     <string name="export_complete_location">Find them in Pictures › FaceAlbums › %1$s</string>
     <string name="export_success_icon">Success</string>
-    <string name="export_success_format">Exported %1$d photos to Pictures/FaceAlbums/%2$s</string>
 
     <!-- Errors -->
     <string name="ok">OK</string>
@@ -73,4 +72,20 @@
     <string name="settings_delete_index_body">Remove all face data on this device. Exported albums stay where they are.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_body">FaceAlbum runs entirely on your device. Face detection by Google ML Kit. Face recognition by MobileFaceNet.</string>
+
+    <!-- Theme / Appearance settings -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <!-- Face reassign -->
+    <string name="cluster_detail_move_to">Move to person…</string>
+    <string name="cluster_detail_move_face_title">Move to</string>
+    <!-- Multi-select export -->
+    <string name="cluster_detail_select_mode">%d selected</string>
+    <string name="cluster_detail_export_selected">Export %d selected</string>
+    <string name="cluster_detail_cancel_select">Cancel selection</string>
+    <string name="cluster_detail_photo_selected">Selected</string>
+    <string name="cluster_detail_photo_unselected">Not selected</string>
 </resources>

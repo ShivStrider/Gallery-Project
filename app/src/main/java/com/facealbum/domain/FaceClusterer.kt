@@ -63,10 +63,15 @@ class FaceClusterer(
                 addition = embedding
             )
             val newCount = bestEntity.faceCount + 1
-            // Keep the first face as the cover until we have stored, comparable
-            // quality for the existing cover. Quality-based upgrade is tracked
-            // separately; this avoids thumbnail flicker on every new assignment.
-            val coverFaceId = bestEntity.coverFaceId ?: faceId
+            // Upgrade the cover face if the new face has noticeably higher quality.
+            // Avoids thumbnail flicker for small improvements (0.05 threshold).
+            val currentCoverQuality = bestEntity.coverFaceId
+                ?.let { faceDao.findById(it)?.quality } ?: -1f
+            val coverFaceId = if (quality > currentCoverQuality + COVER_UPGRADE_THRESHOLD) {
+                faceId
+            } else {
+                bestEntity.coverFaceId ?: faceId
+            }
             clusterDao.update(
                 bestEntity.copy(
                     centroid = Embeddings.toBytes(merged),
@@ -211,5 +216,10 @@ class FaceClusterer(
         val out = FloatArray(v.size)
         for (i in v.indices) out[i] = v[i] / n
         return out
+    }
+
+    companion object {
+        /** Only upgrade the cover face if the new face quality exceeds the current by this margin. */
+        private const val COVER_UPGRADE_THRESHOLD = 0.05f
     }
 }

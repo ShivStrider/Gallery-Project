@@ -9,6 +9,7 @@ import com.facealbum.config.FaceRecognitionConfig
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.domain.ClusterAlbumExportUseCase
 import com.facealbum.domain.FaceClusterer
@@ -66,6 +67,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _pendingAssignThreshold = MutableStateFlow<Float?>(null)
     val pendingAssignThreshold: StateFlow<Float?> = _pendingAssignThreshold.asStateFlow()
+
+    val themePreference: StateFlow<ThemePreference> = prefs.themePreference
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            ThemePreference.SYSTEM
+        )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val clusters: StateFlow<List<ClusterSummary>> =
@@ -169,6 +177,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastExportResult = MutableStateFlow<ClusterAlbumExportUseCase.Result?>(null)
     val lastExportResult: StateFlow<ClusterAlbumExportUseCase.Result?> = _lastExportResult.asStateFlow()
 
+    private val _selectedPhotoIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedPhotoIds: StateFlow<Set<Long>> = _selectedPhotoIds.asStateFlow()
+
+    fun togglePhotoSelection(photoId: Long) {
+        val current = _selectedPhotoIds.value
+        _selectedPhotoIds.value = if (photoId in current) current - photoId else current + photoId
+    }
+
+    fun clearPhotoSelection() {
+        _selectedPhotoIds.value = emptySet()
+    }
+
+    fun exportSelectedPhotos(clusterId: Long, albumName: String) {
+        val selected = _selectedPhotoIds.value.toList()
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            val result = exportUseCase.exportPartial(clusterId, albumName, selected)
+            _selectedPhotoIds.value = emptySet()
+            _lastExportResult.value = result
+            _exportEvents.tryEmit(result)
+        }
+    }
+
     fun startIndex(forceFullRescan: Boolean = false) {
         Timber.d("startIndex(forceFullRescan=$forceFullRescan)")
         FaceIndexWorker.enqueue(getApplication(), forceFullRescan = forceFullRescan)
@@ -198,11 +229,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setThemePreference(pref: ThemePreference) {
+        viewModelScope.launch {
+            prefs.setThemePreference(pref)
+        }
+    }
+
     fun recluster() {
         ReclusterWorker.enqueue(getApplication())
     }
 
     fun loadCluster(clusterId: Long) {
+        // Selection is per-cluster. If the user navigates to a different
+        // cluster while a selection from the previous one is still in the
+        // activity-scoped state, discard it. Re-loading the same cluster
+        // (e.g. after rename / merge) keeps the active selection.
+        if (_selectedCluster.value?.clusterId != clusterId) {
+            _selectedPhotoIds.value = emptySet()
+        }
         viewModelScope.launch {
             val cluster = db.clusterDao().byId(clusterId) ?: return@launch
             val photoIds = db.faceDao().photoIdsInCluster(clusterId)
@@ -256,5 +300,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pickAvailableMergeTargets(excludeClusterId: Long): List<ClusterSummary> {
         return clusters.value.filter { it.id != excludeClusterId }
+    }
+
+    /**
+     * Move all faces from [photoId] that currently belong to [fromClusterId]
+     * to [toClusterId], then recompute centroids on both clusters.
+     */
+    fun reassignFacesForPhoto(photoId: Long, fromClusterId: Long, toClusterId: Long) {
+        if (fromClusterId == toClusterId) return
+        viewModelScope.launch {
+            val faces = db.faceDao().facesForPhoto(photoId)
+                .filter { it.clusterId == fromClusterId }
+            if (faces.isEmpty()) return@launch
+            for (face in faces) {
+                db.faceDao().assignToCluster(face.id, toClusterId)
+            }
+            clusterer.recomputeFromFaces(fromClusterId)
+            clusterer.recomputeFromFaces(toClusterId)
+            // Refresh the current detail view
+            loadCluster(fromClusterId)
+        }
     }
 }

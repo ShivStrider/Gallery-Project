@@ -41,4 +41,7 @@ interface FaceDao {
     /** Ordered by quality desc so re-clustering seeds new clusters from the best faces first. */
     @Query("SELECT * FROM faces ORDER BY quality DESC")
     suspend fun allOrderedByQualityDesc(): List<FaceEntity>
+
+    @Query("SELECT * FROM faces WHERE id = :faceId LIMIT 1")
+    suspend fun findById(faceId: Long): FaceEntity?
 }
