@@ -6,10 +6,14 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.facealbum.config.FaceRecognitionConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+/** User-selected theme. [SYSTEM] follows the device dark/light setting. */
+enum class ThemePreference { SYSTEM, LIGHT, DARK }
 
 /**
  * Durable user preferences (clustering threshold, merge threshold, minimum
@@ -26,6 +30,7 @@ class UserPreferences private constructor(private val appContext: Context) {
         val ASSIGN_THRESHOLD = floatPreferencesKey("assign_threshold")
         val MERGE_THRESHOLD = floatPreferencesKey("merge_threshold")
         val MIN_CLUSTER_SIZE = intPreferencesKey("min_cluster_size")
+        val THEME_PREFERENCE = stringPreferencesKey("theme_preference")
     }
 
     val assignThreshold: Flow<Float> = appContext.dataStore.data.map { prefs ->
@@ -43,6 +48,14 @@ class UserPreferences private constructor(private val appContext: Context) {
             ?: FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE
     }
 
+    val themePreference: Flow<ThemePreference> = appContext.dataStore.data.map { prefs ->
+        when (prefs[Keys.THEME_PREFERENCE]) {
+            "LIGHT" -> ThemePreference.LIGHT
+            "DARK" -> ThemePreference.DARK
+            else -> ThemePreference.SYSTEM
+        }
+    }
+
     suspend fun setAssignThreshold(value: Float) {
         appContext.dataStore.edit { it[Keys.ASSIGN_THRESHOLD] = value.coerceIn(MIN_ASSIGN, MAX_ASSIGN) }
     }
@@ -53,6 +66,10 @@ class UserPreferences private constructor(private val appContext: Context) {
 
     suspend fun setMinClusterSize(value: Int) {
         appContext.dataStore.edit { it[Keys.MIN_CLUSTER_SIZE] = value.coerceAtLeast(1) }
+    }
+
+    suspend fun setThemePreference(value: ThemePreference) {
+        appContext.dataStore.edit { it[Keys.THEME_PREFERENCE] = value.name }
     }
 
     companion object {

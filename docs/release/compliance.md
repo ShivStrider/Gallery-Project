@@ -2,7 +2,7 @@
 
 ## 1) Public privacy policy URL and behavior alignment
 
-> **Status:** Draft placeholder required before submission.
+> **Status:** Draft ready for legal review. Replace `<your-domain>` with the actual hosted URL and obtain sign-off before Play Console submission.
 
 Use a publicly accessible privacy policy URL in Play Console (for example, `https://<your-domain>/facealbum/privacy`). The published policy should match current app behavior implemented in code:
 
@@ -130,3 +130,14 @@ Acceptance criteria mapping:
 
 - **Legal/product approval of policy and Data safety form:** tracked by checklist items above.
 - **Store listing claims match implemented behavior:** enforce allowed/forbidden claim list above in release review.
+
+## 3) Pre-submission checklist
+
+Before submitting to the Play Store, complete the following:
+
+- [ ] Host the privacy policy at `https://<your-domain>/facealbum/privacy` (static page is fine).
+- [ ] Paste the URL into Play Console → App content → Privacy policy.
+- [ ] Complete the Data safety form using the pre-filled answers in section 2 above.
+- [ ] Obtain internal legal/product sign-off on the policy text.
+- [ ] Confirm app version name and versionCode in `app/build.gradle.kts` match the release build.
+- [ ] Verify no analytics SDK, ads SDK, or cloud-upload path was added since last review.

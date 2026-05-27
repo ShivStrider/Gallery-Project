@@ -69,6 +69,68 @@ class ClusterAlbumExportUseCase(
     }
 
     /**
+     * Exports a specific subset of photos from a cluster into an album.
+     * Useful for partial exports selected by the user.
+     *
+     * @param clusterId The source cluster (used for album-name fallback and history record).
+     * @param requestedAlbumName User-supplied album name (may be blank).
+     * @param photoRowIds Explicit list of photo row IDs to export; must be a non-empty subset
+     *                    of photos belonging to [clusterId].
+     */
+    suspend fun exportPartial(
+        clusterId: Long,
+        requestedAlbumName: String,
+        photoRowIds: List<Long>
+    ): Result {
+        if (photoRowIds.isEmpty()) return Result(0, 0, requestedAlbumName)
+        val cluster = db.clusterDao().byId(clusterId)
+            ?: return Result(0, 0, requestedAlbumName)
+        val albumName = requestedAlbumName
+            .trim()
+            .ifBlank { cluster.displayName?.takeIf { it.isNotBlank() } ?: "Person_${cluster.id}" }
+            .let(::sanitizeAlbumName)
+
+        Timber.i("Partial export: cluster $clusterId, ${photoRowIds.size} photos → '$albumName'")
+
+        var success = 0
+        var failure = 0
+        for (photoRowId in photoRowIds) {
+            val photoRow = db.photoDao().findById(photoRowId)
+            if (photoRow == null) { failure += 1; continue }
+            val result = photoRepository.copyToAlbumWithResult(
+                sourceUri = android.net.Uri.parse(photoRow.uri),
+                albumName = albumName,
+                originalFileName = photoRow.displayName
+            )
+            when (result) {
+                is PhotoRepository.CopyToAlbumResult.Success -> success += 1
+                is PhotoRepository.CopyToAlbumResult.Failure -> {
+                    failure += 1
+                    CrashReporter.recordNonFatal(
+                        throwable = IllegalStateException("Partial export failed: ${result.error}"),
+                        source = "cluster_export_partial",
+                        context = mapOf("error" to result.error.name)
+                    )
+                }
+            }
+        }
+
+        if (success > 0) {
+            db.albumDao().insert(
+                AlbumEntity(
+                    clusterId = clusterId,
+                    albumName = albumName,
+                    exportedRelativePath = "Pictures/FaceAlbums/$albumName",
+                    exportedAt = System.currentTimeMillis(),
+                    photoCount = success
+                )
+            )
+        }
+
+        return Result(success, failure, albumName)
+    }
+
+    /**
      * Allow letters, numbers, spaces, dashes, underscores. Strip everything else
      * to keep the MediaStore RELATIVE_PATH simple and predictable.
      */

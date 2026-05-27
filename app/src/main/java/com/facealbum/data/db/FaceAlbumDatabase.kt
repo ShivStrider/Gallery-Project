@@ -13,11 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FaceEntity::class,
         ClusterEntity::class,
         AlbumEntity::class,
-        PersonEntity::class,
-        SeedFaceEntity::class,
         ScanSessionEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class FaceAlbumDatabase : RoomDatabase() {
@@ -25,8 +23,6 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
     abstract fun faceDao(): FaceDao
     abstract fun clusterDao(): ClusterDao
     abstract fun albumDao(): AlbumDao
-    abstract fun personDao(): PersonDao
-    abstract fun seedFaceDao(): SeedFaceDao
     abstract fun scanSessionDao(): ScanSessionDao
 
     companion object {
@@ -41,7 +37,7 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
                     FaceAlbumDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -154,6 +150,44 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_albums_clusterId ON albums(clusterId)"
                 )
+            }
+        }
+
+        /**
+         * v2 → v3: remove unused `persons` and `seed_faces` tables, and drop the
+         * now-orphaned `personId` column + index from `clusters`. `scan_sessions`
+         * and all existing data are fully preserved.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Drop seed_faces first (FK to persons)
+                db.execSQL("DROP TABLE IF EXISTS seed_faces")
+                db.execSQL("DROP TABLE IF EXISTS persons")
+
+                // Rebuild clusters without personId column/FK/index.
+                db.execSQL(
+                    """
+                    CREATE TABLE clusters_v3 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        displayName TEXT,
+                        coverFaceId INTEGER,
+                        faceCount INTEGER NOT NULL,
+                        centroid BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO clusters_v3
+                        (id, displayName, coverFaceId, faceCount, centroid, createdAt, updatedAt)
+                    SELECT id, displayName, coverFaceId, faceCount, centroid, createdAt, updatedAt
+                    FROM clusters
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE clusters")
+                db.execSQL("ALTER TABLE clusters_v3 RENAME TO clusters")
             }
         }
     }

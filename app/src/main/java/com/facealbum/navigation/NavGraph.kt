@@ -11,6 +11,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.facealbum.MainViewModel
+import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.ui.screens.ClusterDetailScreen
 import com.facealbum.ui.screens.ExportCompleteScreen
 import com.facealbum.ui.screens.PeopleScreen
@@ -41,6 +42,8 @@ fun NavGraph(
     val assignThreshold by viewModel.assignThreshold.collectAsState()
     val pendingThreshold by viewModel.pendingAssignThreshold.collectAsState()
     val reclusterProgress by viewModel.reclusterProgress.collectAsState()
+    val themePreference by viewModel.themePreference.collectAsState()
+    val selectedPhotoIds by viewModel.selectedPhotoIds.collectAsState()
 
     // Listen for one-shot export completions globally so any screen can react.
     LaunchedEffect(Unit) {
@@ -87,10 +90,20 @@ fun NavGraph(
                 ClusterDetailScreen(
                     state = state,
                     mergeCandidates = viewModel.pickAvailableMergeTargets(clusterId),
-                    onBack = { navController.popBackStack() },
+                    selectedPhotoIds = selectedPhotoIds,
+                    onBack = {
+                        viewModel.clearPhotoSelection()
+                        navController.popBackStack()
+                    },
                     onRename = { name -> viewModel.renameCluster(clusterId, name) },
                     onExport = { albumName -> viewModel.exportCluster(clusterId, albumName) },
-                    onMerge = { intoId -> viewModel.mergeClusters(clusterId, intoId) }
+                    onMerge = { intoId -> viewModel.mergeClusters(clusterId, intoId) },
+                    onTogglePhotoSelection = viewModel::togglePhotoSelection,
+                    onClearSelection = viewModel::clearPhotoSelection,
+                    onExportSelected = { albumName -> viewModel.exportSelectedPhotos(clusterId, albumName) },
+                    onReassignPhoto = { photoId, toClusterId ->
+                        viewModel.reassignFacesForPhoto(photoId, clusterId, toClusterId)
+                    }
                 )
             }
         }
@@ -107,7 +120,9 @@ fun NavGraph(
                 onRecluster = viewModel::recluster,
                 onRescanAll = { viewModel.startIndex(forceFullRescan = true) },
                 onDeleteIndex = { viewModel.clearIndex() },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                themePreference = themePreference,
+                onThemeChange = viewModel::setThemePreference
             )
         }
 

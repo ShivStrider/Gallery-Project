@@ -38,7 +38,9 @@ fun SettingsScreen(
     onRecluster: () -> Unit,
     onRescanAll: () -> Unit,
     onDeleteIndex: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    themePreference: com.facealbum.data.prefs.ThemePreference = com.facealbum.data.prefs.ThemePreference.SYSTEM,
+    onThemeChange: (com.facealbum.data.prefs.ThemePreference) -> Unit = {}
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -83,6 +85,14 @@ fun SettingsScreen(
             ReclusterRow(
                 progress = reclusterProgress,
                 onClick = onRecluster
+            )
+
+            Spacer(Modifier.height(Spacing.md))
+
+            SectionHeader(stringResource(R.string.settings_section_appearance))
+            ThemeRow(
+                current = themePreference,
+                onSelect = onThemeChange
             )
 
             Spacer(Modifier.height(Spacing.md))
@@ -322,6 +332,48 @@ private fun SettingRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeRow(
+    current: com.facealbum.data.prefs.ThemePreference,
+    onSelect: (com.facealbum.data.prefs.ThemePreference) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(modifier = Modifier.padding(Spacing.md)) {
+            Text(
+                text = stringResource(R.string.settings_theme),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(bottom = Spacing.sm)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+            ) {
+                com.facealbum.data.prefs.ThemePreference.entries.forEach { pref ->
+                    val label = stringResource(
+                        when (pref) {
+                            com.facealbum.data.prefs.ThemePreference.SYSTEM -> R.string.settings_theme_system
+                            com.facealbum.data.prefs.ThemePreference.LIGHT -> R.string.settings_theme_light
+                            com.facealbum.data.prefs.ThemePreference.DARK -> R.string.settings_theme_dark
+                        }
+                    )
+                    FilterChip(
+                        selected = current == pref,
+                        onClick = { onSelect(pref) },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
