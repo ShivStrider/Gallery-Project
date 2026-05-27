@@ -86,4 +86,6 @@
     <string name="cluster_detail_select_mode">%d selected</string>
     <string name="cluster_detail_export_selected">Export %d selected</string>
     <string name="cluster_detail_cancel_select">Cancel selection</string>
+    <string name="cluster_detail_photo_selected">Selected</string>
+    <string name="cluster_detail_photo_unselected">Not selected</string>
 </resources>

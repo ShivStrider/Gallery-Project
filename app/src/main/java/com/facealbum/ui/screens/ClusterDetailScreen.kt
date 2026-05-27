@@ -372,7 +372,10 @@ private fun PhotoCell(
             )
             Icon(
                 imageVector = if (isSelected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                contentDescription = null,
+                contentDescription = stringResource(
+                    if (isSelected) R.string.cluster_detail_photo_selected
+                    else R.string.cluster_detail_photo_unselected
+                ),
                 tint = Color.White,
                 modifier = Modifier
                     .align(Alignment.TopEnd)

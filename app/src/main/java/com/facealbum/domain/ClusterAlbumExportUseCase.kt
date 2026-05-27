@@ -90,11 +90,23 @@ class ClusterAlbumExportUseCase(
             .ifBlank { cluster.displayName?.takeIf { it.isNotBlank() } ?: "Person_${cluster.id}" }
             .let(::sanitizeAlbumName)
 
-        Timber.i("Partial export: cluster $clusterId, ${photoRowIds.size} photos → '$albumName'")
+        // Defense-in-depth: a stale selection (e.g. carried over from another
+        // cluster via the activity-scoped ViewModel) must NOT silently land in
+        // this cluster's album. Intersect the caller's request with the
+        // cluster's actual photo set and count rejected IDs as failures.
+        val membership = db.faceDao().photoIdsInCluster(clusterId).toSet()
+        val rejected = photoRowIds.count { it !in membership }
+        val eligibleIds = photoRowIds.filter { it in membership }
+        if (rejected > 0) {
+            Timber.w("Partial export: rejected $rejected photo ids not in cluster $clusterId")
+        }
+        if (eligibleIds.isEmpty()) return Result(0, rejected, albumName)
+
+        Timber.i("Partial export: cluster $clusterId, ${eligibleIds.size} photos → '$albumName'")
 
         var success = 0
-        var failure = 0
-        for (photoRowId in photoRowIds) {
+        var failure = rejected
+        for (photoRowId in eligibleIds) {
             val photoRow = db.photoDao().findById(photoRowId)
             if (photoRow == null) { failure += 1; continue }
             val result = photoRepository.copyToAlbumWithResult(

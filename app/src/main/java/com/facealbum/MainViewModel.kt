@@ -240,6 +240,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadCluster(clusterId: Long) {
+        // Selection is per-cluster. If the user navigates to a different
+        // cluster while a selection from the previous one is still in the
+        // activity-scoped state, discard it. Re-loading the same cluster
+        // (e.g. after rename / merge) keeps the active selection.
+        if (_selectedCluster.value?.clusterId != clusterId) {
+            _selectedPhotoIds.value = emptySet()
+        }
         viewModelScope.launch {
             val cluster = db.clusterDao().byId(clusterId) ?: return@launch
             val photoIds = db.faceDao().photoIdsInCluster(clusterId)

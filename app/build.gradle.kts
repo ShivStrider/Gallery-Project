@@ -45,13 +45,14 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreBase64 = System.getenv("ANDROID_KEYSTORE_BASE64")
-            if (keystoreBase64 != null) {
-                // Decode base64 keystore to a temp file
-                val keystoreFile = layout.buildDirectory.file("keystore.jks").get().asFile
-                keystoreFile.parentFile.mkdirs()
-                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
-                storeFile = keystoreFile
+            // Point at the location where `decodeReleaseKeystore` (registered
+            // below) will materialise the keystore. AGP only validates that
+            // storeFile exists at signing time, not at configuration time, so
+            // we don't decode/write the base64 blob during every `./gradlew
+            // test`, IDE sync, or lint run — only when an actual release task
+            // executes.
+            if (System.getenv("ANDROID_KEYSTORE_BASE64") != null) {
+                storeFile = layout.buildDirectory.file("keystore.jks").get().asFile
             }
             storePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: ""
             keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: ""
@@ -102,10 +103,30 @@ android {
     }
 }
 
+// Materialise the release keystore from $ANDROID_KEYSTORE_BASE64 only when an
+// actual release task is about to run. Configuration time stays cheap (no
+// disk write on test/lint/IDE-sync runs); the decoded keystore is also kept
+// out of any non-release artefacts.
+tasks.register("decodeReleaseKeystore") {
+    val keystoreBase64 = System.getenv("ANDROID_KEYSTORE_BASE64")
+    val keystoreFile = layout.buildDirectory.file("keystore.jks")
+    onlyIf { keystoreBase64 != null }
+    outputs.file(keystoreFile)
+    doLast {
+        val out = keystoreFile.get().asFile
+        out.parentFile.mkdirs()
+        out.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
+    }
+}
+
 // Only gate the actual installable/distributable outputs on the model asset —
 // not every task whose name happens to contain "Release" (test, lint, etc.).
+// The same gate also wires the lazy keystore decode in front of release builds.
 tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease") }
-    .configureEach { dependsOn("verifyFaceModelPresent") }
+    .configureEach {
+        dependsOn("verifyFaceModelPresent")
+        dependsOn("decodeReleaseKeystore")
+    }
 
 dependencies {
     // Core
