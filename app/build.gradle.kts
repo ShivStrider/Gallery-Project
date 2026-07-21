@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -115,7 +117,7 @@ tasks.register("decodeReleaseKeystore") {
     doLast {
         val out = keystoreFile.get().asFile
         out.parentFile.mkdirs()
-        out.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
+        out.writeBytes(Base64.getDecoder().decode(keystoreBase64))
     }
 }
 
