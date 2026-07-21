@@ -36,21 +36,31 @@ class ClusterDetailScreenTest {
                     processedAt = 0L,
                     faceCount = 1
                 )
-            }
+            },
+            firstAppearance = null,
+            latestAppearance = null,
+            isFavorite = false
         )
 
-    @Test
-    fun displayName_isShownInHero() {
+    private fun render(
+        state: MainViewModel.ClusterDetailState,
+        selected: Set<Long> = emptySet(),
+        candidates: List<ClusterSummary> = emptyList(),
+        onExport: (String) -> Unit = {},
+        onMerge: (Long) -> Unit = {}
+    ) {
         composeTestRule.setContent {
             FaceAlbumTheme {
                 ClusterDetailScreen(
-                    state = makeState("Charlie"),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = emptySet(),
+                    state = state,
+                    mergeCandidates = candidates,
+                    selectedPhotoIds = selected,
                     onBack = {},
                     onRename = {},
-                    onExport = {},
-                    onMerge = {},
+                    onExport = onExport,
+                    onMerge = onMerge,
+                    onToggleFavorite = {},
+                    onPhotoTap = {},
                     onTogglePhotoSelection = {},
                     onClearSelection = {},
                     onExportSelected = {},
@@ -58,154 +68,58 @@ class ClusterDetailScreenTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun displayName_isShownInHero() {
+        render(makeState("Charlie"))
         composeTestRule.onNodeWithText("Charlie").assertIsDisplayed()
     }
 
     @Test
     fun unnamed_fallbackText_isShown() {
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState(name = null),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = emptySet(),
-                    onBack = {},
-                    onRename = {},
-                    onExport = {},
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
+        render(makeState(name = null))
         composeTestRule.onNodeWithText("Unnamed").assertIsDisplayed()
     }
 
     @Test
-    fun renameButton_click_opensDialog() {
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState("Diana"),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = emptySet(),
-                    onBack = {},
-                    onRename = {},
-                    onExport = {},
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
-        // The edit (rename) icon button in the hero
+    fun renameAction_isShownInActionRow() {
+        render(makeState("Diana"))
         composeTestRule.onNodeWithText("Rename").assertIsDisplayed()
     }
 
     @Test
     fun exportButton_click_opensAlbumNameDialog() {
-        var albumName = ""
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState("Eve"),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = emptySet(),
-                    onBack = {},
-                    onRename = {},
-                    onExport = { name -> albumName = name },
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
+        render(makeState("Eve"))
         composeTestRule.onNodeWithText("Export album").performClick()
-        // Dialog should appear with a confirm button
         composeTestRule.onNodeWithText("Export").assertIsDisplayed()
     }
 
     @Test
     fun selectionBanner_shownWhenPhotosSelected() {
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState("Frank", photoCount = 2),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = setOf(1L),
-                    onBack = {},
-                    onRename = {},
-                    onExport = {},
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
-        // Banner title shows "N selected"
+        render(makeState("Frank", photoCount = 2), selected = setOf(1L))
         composeTestRule.onNodeWithText("1 selected").assertIsDisplayed()
-        // "Move to person…" appears when exactly 1 photo is selected
         composeTestRule.onNodeWithText("Move to person…").assertIsDisplayed()
-        // Cancel button in the banner
-        composeTestRule.onNodeWithText("Cancel selection").assertIsDisplayed()
-        // Hero button also reflects the selection count
-        composeTestRule.onNodeWithText("Export 1 selected").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Cancel").assertIsDisplayed()
+        // Action-row button also reflects the selection count.
+        composeTestRule.onNodeWithText("Export 1").assertIsDisplayed()
     }
 
     @Test
     fun selectionBanner_moveToHidden_withMultipleSelected() {
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState("Heidi", photoCount = 3),
-                    mergeCandidates = emptyList(),
-                    selectedPhotoIds = setOf(1L, 2L),
-                    onBack = {},
-                    onRename = {},
-                    onExport = {},
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
+        render(makeState("Heidi", photoCount = 3), selected = setOf(1L, 2L))
         composeTestRule.onNodeWithText("2 selected").assertIsDisplayed()
-        // "Move to person…" is hidden when more than one photo is selected
         composeTestRule.onNodeWithText("Move to person…", useUnmergedTree = true)
             .assertDoesNotExist()
     }
 
     @Test
     fun mergeButton_click_showsMergeDialog() {
-        val candidate = ClusterSummary(id = 99L, displayName = "Grace", faceCount = 5, coverPhotoUri = null)
-        composeTestRule.setContent {
-            FaceAlbumTheme {
-                ClusterDetailScreen(
-                    state = makeState("Frank"),
-                    mergeCandidates = listOf(candidate),
-                    selectedPhotoIds = emptySet(),
-                    onBack = {},
-                    onRename = {},
-                    onExport = {},
-                    onMerge = {},
-                    onTogglePhotoSelection = {},
-                    onClearSelection = {},
-                    onExportSelected = {},
-                    onReassignPhoto = { _, _ -> }
-                )
-            }
-        }
-        composeTestRule.onNodeWithText("Merge with…").performClick()
+        val candidate = ClusterSummary(
+            id = 99L, displayName = "Grace", faceCount = 5, coverPhotoUri = null
+        )
+        render(makeState("Frank"), candidates = listOf(candidate))
+        composeTestRule.onNodeWithText("Merge").performClick()
         composeTestRule.onNodeWithText("Grace").assertIsDisplayed()
     }
 }

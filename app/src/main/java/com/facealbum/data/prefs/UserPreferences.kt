@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.facealbum.config.FaceRecognitionConfig
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,7 @@ class UserPreferences private constructor(private val appContext: Context) {
         val MERGE_THRESHOLD = floatPreferencesKey("merge_threshold")
         val MIN_CLUSTER_SIZE = intPreferencesKey("min_cluster_size")
         val THEME_PREFERENCE = stringPreferencesKey("theme_preference")
+        val FAVORITE_CLUSTERS = stringSetPreferencesKey("favorite_clusters")
     }
 
     val assignThreshold: Flow<Float> = appContext.dataStore.data.map { prefs ->
@@ -53,6 +55,26 @@ class UserPreferences private constructor(private val appContext: Context) {
             "LIGHT" -> ThemePreference.LIGHT
             "DARK" -> ThemePreference.DARK
             else -> ThemePreference.SYSTEM
+        }
+    }
+
+    /**
+     * Cluster IDs the user has starred. Kept in DataStore rather than a Room
+     * column so introducing favourites did not require a schema migration.
+     */
+    val favoriteClusterIds: Flow<Set<Long>> = appContext.dataStore.data.map { prefs ->
+        prefs[Keys.FAVORITE_CLUSTERS]
+            ?.mapNotNullTo(mutableSetOf()) { it.toLongOrNull() }
+            ?: emptySet()
+    }
+
+    suspend fun setClusterFavorite(clusterId: Long, favorite: Boolean) {
+        appContext.dataStore.edit { prefs ->
+            val current = prefs[Keys.FAVORITE_CLUSTERS] ?: emptySet()
+            val next = current.toMutableSet().apply {
+                if (favorite) add(clusterId.toString()) else remove(clusterId.toString())
+            }
+            prefs[Keys.FAVORITE_CLUSTERS] = next
         }
     }
 

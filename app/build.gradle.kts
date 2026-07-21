@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -86,6 +88,9 @@ android {
 
     buildFeatures {
         compose = true
+        // AGP 8+ disables BuildConfig generation by default; FaceAlbumApp uses
+        // `BuildConfig.DEBUG` to gate Timber's debug tree + crash-reporter.
+        buildConfig = true
     }
 
     composeOptions {
@@ -115,7 +120,7 @@ tasks.register("decodeReleaseKeystore") {
     doLast {
         val out = keystoreFile.get().asFile
         out.parentFile.mkdirs()
-        out.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
+        out.writeBytes(Base64.getDecoder().decode(keystoreBase64))
     }
 }
 
@@ -176,7 +181,9 @@ dependencies {
 
     // Firebase BOM
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
-    implementation("com.google.firebase:firebase-crashlytics-ktx")
+    // KTX side-modules were folded into the main artifacts in Firebase BOM
+    // 33+; -ktx variants no longer publish. Use the plain module directly.
+    implementation("com.google.firebase:firebase-crashlytics")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

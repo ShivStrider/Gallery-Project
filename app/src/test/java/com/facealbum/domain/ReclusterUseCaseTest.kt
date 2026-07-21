@@ -43,8 +43,16 @@ class ReclusterUseCaseTest {
 
     @Test
     fun `recluster responds to threshold changes without rescanning`() = runTest {
+        // jitter is applied element-wise BEFORE unit-normalisation, so its
+        // impact on cosine similarity is small relative to the base vector's
+        // norm. A jitter of 0.10 gives cos-sim ≈ 0.995 (the two vectors are
+        // effectively identical), which means both thresholds merge them and
+        // the test can't distinguish strict from lenient. Push the jitter up
+        // so the resulting cos-sim lands in the 0.4-0.6 band — high enough
+        // for the lenient (0.3) pass to merge, low enough for the strict
+        // (0.9) pass to keep them as two singletons.
         val a = unitVec(seed = 1)
-        val b = unitVec(seed = 1, jitter = 0.10f)
+        val b = unitVec(seed = 1, jitter = 2.0f)
         insertFace(a)
         insertFace(b)
 

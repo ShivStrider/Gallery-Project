@@ -1,5 +1,6 @@
 package com.facealbum.ui
 
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -28,20 +29,23 @@ class PeopleScreenTest {
         running = true, done = 3, total = 10, faces = 5, clusters = 2
     )
 
+    private val snackbarHost = SnackbarHostState()
+
     @Test
-    fun emptyState_showsNopeopleTitleAndScanButton() {
+    fun emptyState_showsFriendlyTitleAndScanButton() {
         composeTestRule.setContent {
             FaceAlbumTheme {
                 PeopleScreen(
                     clusters = emptyList(),
                     indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
                     onClusterClick = {},
                     onScanNow = {},
                     onOpenSettings = {}
                 )
             }
         }
-        composeTestRule.onNodeWithText("No people yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Your people will appear here").assertIsDisplayed()
         composeTestRule.onNodeWithText("Scan").assertIsDisplayed()
     }
 
@@ -52,13 +56,15 @@ class PeopleScreenTest {
                 PeopleScreen(
                     clusters = emptyList(),
                     indexProgress = runningProgress(),
+                    snackbarHostState = snackbarHost,
                     onClusterClick = {},
                     onScanNow = {},
                     onOpenSettings = {}
                 )
             }
         }
-        composeTestRule.onNodeWithText("Looking through your photos…").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Looking through your photos — hang tight.")
+            .assertIsDisplayed()
     }
 
     @Test
@@ -68,14 +74,14 @@ class PeopleScreenTest {
                 PeopleScreen(
                     clusters = emptyList(),
                     indexProgress = runningProgress(),
+                    snackbarHostState = snackbarHost,
                     onClusterClick = {},
                     onScanNow = {},
                     onOpenSettings = {}
                 )
             }
         }
-        // The progress banner text: "Scanning 3 / 10 · 5 faces"
-        composeTestRule.onNodeWithText("Scanning 3 / 10 · 5 faces").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Scanning 3 of 10 · 5 faces found").assertIsDisplayed()
     }
 
     @Test
@@ -88,6 +94,7 @@ class PeopleScreenTest {
                 PeopleScreen(
                     clusters = clusters,
                     indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
                     onClusterClick = {},
                     onScanNow = {},
                     onOpenSettings = {}
@@ -95,7 +102,7 @@ class PeopleScreenTest {
             }
         }
         composeTestRule.onNodeWithText("Alice").assertIsDisplayed()
-        composeTestRule.onNodeWithText("12 faces").assertIsDisplayed()
+        composeTestRule.onNodeWithText("12 photos").assertIsDisplayed()
     }
 
     @Test
@@ -109,6 +116,7 @@ class PeopleScreenTest {
                 PeopleScreen(
                     clusters = clusters,
                     indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
                     onClusterClick = { id -> clickedId = id },
                     onScanNow = {},
                     onOpenSettings = {}
@@ -130,6 +138,7 @@ class PeopleScreenTest {
                 PeopleScreen(
                     clusters = emptyList(),
                     indexProgress = errorProgress,
+                    snackbarHostState = snackbarHost,
                     onClusterClick = {},
                     onScanNow = {},
                     onOpenSettings = {}

@@ -1,30 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FaceAlbum</string>
-    <string name="permission_rationale">FaceAlbum needs access to your photos to find faces and group them into albums — all on-device.</string>
-    <string name="permission_denied">Photo access denied. Please grant permission in Settings to use this app.</string>
+
+    <!-- Permission -->
+    <string name="permission_rationale">FaceAlbum needs access to your photos to find faces and group them by person — all on your device.</string>
+    <string name="permission_denied">Photo access denied. Grant permission in Settings to continue.</string>
     <string name="grant_access">Grant Access</string>
     <string name="open_settings">Open Settings</string>
+
+    <!-- Common -->
     <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
     <string name="export">Export</string>
     <string name="start_over">Done</string>
+    <string name="undo">Undo</string>
+    <string name="close">Close</string>
+
+    <!-- Album -->
     <string name="album_name_hint">Album name</string>
     <string name="album_name_default">Person</string>
+
+    <!-- Welcome -->
     <string name="welcome_title">FaceAlbum</string>
-    <string name="welcome_subtitle">Group photos by face — all on your device.</string>
-    <string name="welcome_feature_group_title">Group every face</string>
-    <string name="welcome_feature_group_body">Your photo library, organised by person — automatically.</string>
-    <string name="welcome_feature_private_title">Stays on your device</string>
-    <string name="welcome_feature_private_body">No uploads. No accounts. No tracking.</string>
-    <string name="welcome_feature_export_title">Export albums</string>
-    <string name="welcome_feature_export_body">Save a folder of photos for anyone you tag.</string>
-    <string name="export_complete_title">Album exported</string>
+    <string name="welcome_subtitle">Group photos by person — privately, right on your device.</string>
+    <string name="welcome_feature_group_title">One place per person</string>
+    <string name="welcome_feature_group_body">Your library, quietly sorted by who\'s in the frame.</string>
+    <string name="welcome_feature_private_title">Stays on this device</string>
+    <string name="welcome_feature_private_body">No uploads. No accounts. No tracking, ever.</string>
+    <string name="welcome_feature_export_title">Share as albums</string>
+    <string name="welcome_feature_export_body">Export a person\'s photos as a folder anytime.</string>
+
+    <!-- Export complete -->
+    <string name="export_complete_title">Album ready</string>
     <string name="export_complete_count_label">photos saved</string>
     <string name="export_complete_location">Find them in Pictures › FaceAlbums › %1$s</string>
+    <string name="export_complete_open_gallery">Open in gallery</string>
     <string name="export_success_icon">Success</string>
-
-    <!-- Errors -->
-    <string name="ok">OK</string>
 
     <!-- Indexing notification -->
     <string name="notif_channel_indexing">Face indexing</string>
@@ -37,55 +48,103 @@
     <string name="notif_title_reclustering">Re-grouping faces</string>
     <string name="notif_text_recluster_progress">Re-grouped %1$d of %2$d faces</string>
 
-    <!-- People / cluster screens -->
+    <!-- People grid -->
     <string name="people_title">People</string>
-    <string name="people_empty_title">No people yet</string>
-    <string name="people_empty_subtitle">Tap Scan to find faces in your photos.</string>
-    <string name="people_empty_scanning">Looking through your photos…</string>
+    <string name="people_empty_title">Your people will appear here</string>
+    <string name="people_empty_subtitle">Tap Scan to look through your photos. Everything stays on your device.</string>
+    <string name="people_empty_scanning">Looking through your photos — hang tight.</string>
+    <string name="people_empty_cta">Scan photos</string>
     <string name="people_unnamed">Unnamed</string>
-    <string name="people_face_count_format">%d faces</string>
+    <string name="people_face_count_format">%d photos</string>
     <string name="people_scan_now">Scan</string>
-    <string name="people_scanning_progress">Scanning %1$d / %2$d · %3$d faces</string>
+    <string name="people_scanning_progress">Scanning %1$d of %2$d · %3$d faces found</string>
+    <string name="people_scanning_eta">About %1$s left</string>
     <string name="people_open_settings">Open settings</string>
-    <string name="cluster_detail_back">Back</string>
-    <string name="cluster_detail_rename">Rename</string>
-    <string name="cluster_detail_export">Export album</string>
-    <string name="cluster_detail_merge">Merge with…</string>
-    <string name="cluster_detail_merge_empty">No other people to merge with yet.</string>
-    <string name="cluster_detail_rename_hint">Person name</string>
-    <string name="cluster_detail_save">Save</string>
-    <string name="cluster_default_name_format">Person %d</string>
+
+    <!-- Person detail -->
+    <string name="person_detail_back">Back</string>
+    <string name="person_detail_rename">Rename</string>
+    <string name="person_detail_export">Export album</string>
+    <string name="person_detail_merge">Merge</string>
+    <string name="person_detail_favorite">Favorite</string>
+    <string name="person_detail_unfavorite">Unfavorite</string>
+    <string name="person_detail_merge_empty">No other people to merge with yet.</string>
+    <string name="person_detail_rename_hint">Person\'s name</string>
+    <string name="person_detail_save">Save</string>
+    <string name="person_default_name_format">Person %d</string>
+    <string name="person_detail_photo_count">%d photos</string>
+    <string name="person_detail_first_seen">First appeared %1$s</string>
+    <string name="person_detail_last_seen">Latest appeared %1$s</string>
+    <string name="person_detail_stats_title">About this person</string>
+    <string name="person_detail_gallery_title">Photos</string>
+    <string name="person_detail_open_photo">Open photo</string>
+    <string name="person_detail_move_to">Move to person…</string>
+    <string name="person_detail_move_face_title">Move to</string>
+
+    <!-- Selection -->
+    <string name="person_detail_select_mode">%d selected</string>
+    <string name="person_detail_export_selected">Export %d</string>
+    <string name="person_detail_cancel_select">Cancel</string>
+    <string name="person_detail_photo_selected">Selected</string>
+    <string name="person_detail_photo_unselected">Not selected</string>
+
+    <!-- Snackbars / feedback -->
+    <string name="snack_renamed">Renamed to %1$s</string>
+    <string name="snack_merged">Merged with %1$s</string>
+    <string name="snack_exported">Album exported</string>
+    <string name="snack_export_failed">Couldn\'t export album</string>
+    <string name="snack_favorited">Added to favorites</string>
+    <string name="snack_unfavorited">Removed from favorites</string>
+
+    <!-- Confirmations -->
+    <string name="confirm_merge_title">Merge these people?</string>
+    <string name="confirm_merge_body">%1$s will be combined into %2$s. This can\'t be undone from here.</string>
+    <string name="confirm_merge_action">Merge</string>
+
+    <!-- Immersive viewer -->
+    <string name="viewer_close">Close viewer</string>
+    <string name="viewer_position">%1$d of %2$d</string>
+
+    <!-- Settings -->
     <string name="settings_title">Settings</string>
-    <string name="settings_section_clustering">Clustering</string>
+    <string name="settings_section_clustering">Grouping</string>
     <string name="settings_section_data">Data</string>
-    <string name="settings_min_cluster_size">Minimum cluster size</string>
-    <string name="settings_min_cluster_size_body">Hide groups with fewer faces than this.</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_min_cluster_size">Minimum group size</string>
+    <string name="settings_min_cluster_size_body">Hide people who appear in fewer photos than this.</string>
     <string name="settings_threshold">Grouping strictness</string>
     <string name="settings_threshold_value">%.2f</string>
-    <string name="settings_threshold_body">Looser = more photos grouped together (some mistakes). Stricter = fewer mistakes, may split the same person across groups.</string>
+    <string name="settings_threshold_body">Looser groups more photos together. Stricter keeps groups tighter but may split the same person across groups.</string>
     <string name="settings_recluster">Re-group photos now</string>
-    <string name="settings_recluster_body">Apply the current strictness to all faces already scanned. No re-scan of your photos.</string>
+    <string name="settings_recluster_body">Apply the current strictness to every face already scanned. No re-scan needed.</string>
     <string name="settings_recluster_running">Re-grouping… %1$d / %2$d</string>
     <string name="settings_rescan_all">Re-scan entire library</string>
     <string name="settings_rescan_all_body">Re-process every photo from scratch.</string>
-    <string name="settings_delete_index">Delete face index</string>
+    <string name="settings_delete_index">Delete face data</string>
     <string name="settings_delete_index_body">Remove all face data on this device. Exported albums stay where they are.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_body">FaceAlbum runs entirely on your device. Face detection by Google ML Kit. Face recognition by MobileFaceNet.</string>
-
-    <!-- Theme / Appearance settings -->
-    <string name="settings_section_appearance">Appearance</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
-    <!-- Face reassign -->
-    <string name="cluster_detail_move_to">Move to person…</string>
-    <string name="cluster_detail_move_face_title">Move to</string>
-    <!-- Multi-select export -->
-    <string name="cluster_detail_select_mode">%d selected</string>
-    <string name="cluster_detail_export_selected">Export %d selected</string>
-    <string name="cluster_detail_cancel_select">Cancel selection</string>
-    <string name="cluster_detail_photo_selected">Selected</string>
-    <string name="cluster_detail_photo_unselected">Not selected</string>
+    <string name="settings_version_label">Version %1$s</string>
+    <string name="settings_privacy_link">Privacy policy</string>
+
+    <!-- Legacy aliases kept so unmigrated references still resolve. -->
+    <string name="cluster_detail_back">@string/person_detail_back</string>
+    <string name="cluster_detail_rename">@string/person_detail_rename</string>
+    <string name="cluster_detail_export">@string/person_detail_export</string>
+    <string name="cluster_detail_merge">@string/person_detail_merge</string>
+    <string name="cluster_detail_merge_empty">@string/person_detail_merge_empty</string>
+    <string name="cluster_detail_rename_hint">@string/person_detail_rename_hint</string>
+    <string name="cluster_detail_save">@string/person_detail_save</string>
+    <string name="cluster_default_name_format">@string/person_default_name_format</string>
+    <string name="cluster_detail_move_to">@string/person_detail_move_to</string>
+    <string name="cluster_detail_move_face_title">@string/person_detail_move_face_title</string>
+    <string name="cluster_detail_select_mode">@string/person_detail_select_mode</string>
+    <string name="cluster_detail_export_selected">@string/person_detail_export_selected</string>
+    <string name="cluster_detail_cancel_select">@string/person_detail_cancel_select</string>
+    <string name="cluster_detail_photo_selected">@string/person_detail_photo_selected</string>
+    <string name="cluster_detail_photo_unselected">@string/person_detail_photo_unselected</string>
 </resources>
