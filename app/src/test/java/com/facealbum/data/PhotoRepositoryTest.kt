@@ -11,11 +11,18 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
+// Uri.parse() at field init needs Android's real implementation, which is
+// only present in the JVM test JAR when the test runs under Robolectric.
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class PhotoRepositoryTest {
     private val context: Context = mockk()
     private val resolver: ContentResolver = mockk(relaxed = true)
