@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon foreground: stylised person silhouette centred within the
+     72dp "safe zone" of the 108dp canvas so it survives every launcher mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Head -->
+    <path
+        android:pathData="M54,46 m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Shoulders -->
+    <path
+        android:pathData="M38,80 C38,68 45,62 54,62 C63,62 70,68 70,80 L70,86 L38,86 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Subtle secondary silhouette to the right, hinting at "people" -->
+    <path
+        android:pathData="M74,52 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+    <path
+        android:pathData="M66,80 C66,72 70,68 74,68 C78,68 82,72 82,80 L82,86 L66,86 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+</vector>
