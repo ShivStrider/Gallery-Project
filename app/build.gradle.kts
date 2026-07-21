@@ -178,7 +178,9 @@ dependencies {
 
     // Firebase BOM
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
-    implementation("com.google.firebase:firebase-crashlytics-ktx")
+    // KTX side-modules were folded into the main artifacts in Firebase BOM
+    // 33+; -ktx variants no longer publish. Use the plain module directly.
+    implementation("com.google.firebase:firebase-crashlytics")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
