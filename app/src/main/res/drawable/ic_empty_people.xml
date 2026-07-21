@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Empty-state illustration: three overlapping face silhouettes inside a soft
+     rounded frame. Colours are theme tints so it re-colours with Material You. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="160dp"
+    android:viewportWidth="200"
+    android:viewportHeight="160">
+
+
+    <!-- Soft rounded background card -->
+    <path
+        android:pathData="M20,30 L180,30 A16,16 0 0 1 196,46 L196,130 A16,16 0 0 1 180,146 L20,146 A16,16 0 0 1 4,130 L4,46 A16,16 0 0 1 20,30 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.14" />
+
+    <!-- Left face -->
+    <path
+        android:pathData="M60,72 m-18,0 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+    <path
+        android:pathData="M40,124 C40,108 52,98 60,98 C68,98 80,108 80,124 L80,132 L40,132 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+
+    <!-- Right face -->
+    <path
+        android:pathData="M140,72 m-18,0 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+    <path
+        android:pathData="M120,124 C120,108 132,98 140,98 C148,98 160,108 160,124 L160,132 L120,132 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55" />
+
+    <!-- Center face (foreground) -->
+    <path
+        android:pathData="M100,66 m-24,0 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M72,132 C72,110 86,96 100,96 C114,96 128,110 128,132 L128,140 L72,140 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Sparkles -->
+    <path
+        android:pathData="M28,52 l3,-6 l3,6 l6,3 l-6,3 l-3,6 l-3,-6 l-6,-3 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85" />
+    <path
+        android:pathData="M170,52 l2,-4 l2,4 l4,2 l-4,2 l-2,4 l-2,-4 l-4,-2 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85" />
+</vector>

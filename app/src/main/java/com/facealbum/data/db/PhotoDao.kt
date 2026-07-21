@@ -43,6 +43,9 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): PhotoEntity?
 
+    @Query("SELECT * FROM photos WHERE id IN (:ids)")
+    suspend fun findByIds(ids: List<Long>): List<PhotoEntity>
+
     @Query("SELECT MAX(dateModified) FROM photos")
     suspend fun lastIndexedDateModified(): Long?
 

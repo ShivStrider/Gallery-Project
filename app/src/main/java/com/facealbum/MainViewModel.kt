@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -30,14 +31,11 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * Top-level state holder for the face-clustering UI.
+ * Top-level state holder for the app.
  *
- * The library is indexed by [FaceIndexWorker] (a foreground service). Live
- * progress is read off WorkManager's `Flow<WorkInfo>`. Clusters live in Room
- * and surface through [ClusterDao.summariesAtLeast] so the People grid stays
- * in sync as the worker writes new faces.
- *
- * User preferences (threshold, min cluster size) are durable via [UserPreferences].
+ * Live clusters + progress come off Room + WorkManager. Favourite state and
+ * theme come from DataStore. Snackbar messages fire once through a
+ * [MutableSharedFlow] so re-composition doesn't re-play them.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -53,11 +51,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             FaceRecognitionConfig.DEFAULT_MIN_CLUSTER_SIZE
         )
 
-    /**
-     * Persisted match strictness. Source of truth is DataStore. While the user
-     * drags the slider we mirror the latest value in [_pendingAssignThreshold]
-     * for snappy UI feedback and commit on release.
-     */
     val assignThreshold: StateFlow<Float> = prefs.assignThreshold
         .stateIn(
             viewModelScope,
@@ -75,10 +68,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ThemePreference.SYSTEM
         )
 
+    val favoriteClusterIds: StateFlow<Set<Long>> = prefs.favoriteClusterIds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val clusters: StateFlow<List<ClusterSummary>> =
         minClusterSize
             .flatMapLatest { min -> db.clusterDao().summariesAtLeast(min) }
+            .combine(favoriteClusterIds) { summaries, favs ->
+                // Favourites float to the top; within each bucket keep the DAO's
+                // faceCount-desc ordering.
+                summaries.sortedWith(
+                    compareByDescending<ClusterSummary> { it.id in favs }
+                        .thenByDescending { it.faceCount }
+                )
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     data class IndexProgress(
@@ -156,26 +160,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCluster = MutableStateFlow<ClusterDetailState?>(null)
     val selectedCluster: StateFlow<ClusterDetailState?> = _selectedCluster.asStateFlow()
 
+    /**
+     * Everything the Person Detail screen needs to render, including derived
+     * "first appeared" / "latest appeared" timestamps and favourite state.
+     */
     data class ClusterDetailState(
         val clusterId: Long,
         val displayName: String?,
-        val photos: List<PhotoEntity>
+        val photos: List<PhotoEntity>,
+        val firstAppearance: Long?,
+        val latestAppearance: Long?,
+        val isFavorite: Boolean
     )
 
-    /**
-     * One-shot export-completed signal. We use a `SharedFlow` rather than a
-     * `StateFlow<Result?>` so navigating back to a cluster detail screen after a
-     * successful export does not re-trigger navigation to ExportComplete.
-     */
     private val _exportEvents = MutableSharedFlow<ClusterAlbumExportUseCase.Result>(
         replay = 0,
         extraBufferCapacity = 1
     )
     val exportEvents: SharedFlow<ClusterAlbumExportUseCase.Result> = _exportEvents.asSharedFlow()
 
-    /** Snapshot of the most recently completed export, displayed on ExportComplete. */
     private val _lastExportResult = MutableStateFlow<ClusterAlbumExportUseCase.Result?>(null)
     val lastExportResult: StateFlow<ClusterAlbumExportUseCase.Result?> = _lastExportResult.asStateFlow()
+
+    /** One-shot toast/snackbar messages surfaced by screens. */
+    sealed interface UserMessage {
+        data class Renamed(val name: String) : UserMessage
+        data class Merged(val targetName: String?) : UserMessage
+        data class Favorited(val on: Boolean) : UserMessage
+    }
+
+    private val _messages = MutableSharedFlow<UserMessage>(
+        replay = 0, extraBufferCapacity = 4
+    )
+    val messages: SharedFlow<UserMessage> = _messages.asSharedFlow()
 
     private val _selectedPhotoIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedPhotoIds: StateFlow<Set<Long>> = _selectedPhotoIds.asStateFlow()
@@ -240,44 +257,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadCluster(clusterId: Long) {
-        // Selection is per-cluster. If the user navigates to a different
-        // cluster while a selection from the previous one is still in the
-        // activity-scoped state, discard it. Re-loading the same cluster
-        // (e.g. after rename / merge) keeps the active selection.
         if (_selectedCluster.value?.clusterId != clusterId) {
             _selectedPhotoIds.value = emptySet()
         }
         viewModelScope.launch {
             val cluster = db.clusterDao().byId(clusterId) ?: return@launch
             val photoIds = db.faceDao().photoIdsInCluster(clusterId)
-            val photos = photoIds.mapNotNull { db.photoDao().findById(it) }
-                .sortedByDescending { it.dateTaken }
+            val photos = if (photoIds.isEmpty()) {
+                emptyList()
+            } else {
+                db.photoDao().findByIds(photoIds).sortedByDescending { it.dateTaken }
+            }
+            val firstAppearance = photos.minOfOrNull { it.dateTaken }
+            val latestAppearance = photos.maxOfOrNull { it.dateTaken }
             _selectedCluster.value = ClusterDetailState(
                 clusterId = clusterId,
                 displayName = cluster.displayName,
-                photos = photos
+                photos = photos,
+                firstAppearance = firstAppearance,
+                latestAppearance = latestAppearance,
+                isFavorite = clusterId in favoriteClusterIds.value
             )
         }
     }
 
     fun renameCluster(clusterId: Long, name: String) {
         viewModelScope.launch {
-            db.clusterDao().rename(clusterId, name.trim(), System.currentTimeMillis())
-            // Refresh detail state if open.
+            val trimmed = name.trim()
+            db.clusterDao().rename(clusterId, trimmed, System.currentTimeMillis())
             if (_selectedCluster.value?.clusterId == clusterId) {
                 loadCluster(clusterId)
             }
+            if (trimmed.isNotEmpty()) _messages.tryEmit(UserMessage.Renamed(trimmed))
         }
     }
 
     fun mergeClusters(fromClusterId: Long, intoClusterId: Long) {
         viewModelScope.launch {
+            val targetName = db.clusterDao().byId(intoClusterId)?.displayName
             clusterer.mergeUserRequested(fromClusterId, intoClusterId)
             if (_selectedCluster.value?.clusterId == fromClusterId) {
                 _selectedCluster.value = null
             } else if (_selectedCluster.value?.clusterId == intoClusterId) {
                 loadCluster(intoClusterId)
             }
+            _messages.tryEmit(UserMessage.Merged(targetName))
         }
     }
 
@@ -291,7 +315,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearIndex() {
         viewModelScope.launch {
-            // Photos cascade to faces; clusters need explicit clearing.
             db.faceDao().clear()
             db.clusterDao().clear()
             db.photoDao().clear()
@@ -300,6 +323,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pickAvailableMergeTargets(excludeClusterId: Long): List<ClusterSummary> {
         return clusters.value.filter { it.id != excludeClusterId }
+    }
+
+    fun toggleFavorite(clusterId: Long) {
+        val nowOn = clusterId !in favoriteClusterIds.value
+        viewModelScope.launch {
+            prefs.setClusterFavorite(clusterId, nowOn)
+            if (_selectedCluster.value?.clusterId == clusterId) {
+                _selectedCluster.value = _selectedCluster.value?.copy(isFavorite = nowOn)
+            }
+            _messages.tryEmit(UserMessage.Favorited(nowOn))
+        }
     }
 
     /**
@@ -317,7 +351,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             clusterer.recomputeFromFaces(fromClusterId)
             clusterer.recomputeFromFaces(toClusterId)
-            // Refresh the current detail view
             loadCluster(fromClusterId)
         }
     }

@@ -121,6 +121,7 @@ fun SettingsScreen(
                 subtitle = stringResource(R.string.settings_about_body),
                 onClick = null
             )
+            AboutFooter()
 
             Spacer(Modifier.height(Spacing.xl))
         }
@@ -333,6 +334,30 @@ private fun SettingRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AboutFooter() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val versionName = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.md),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (versionName.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.settings_version_label, versionName),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
