@@ -179,7 +179,8 @@ class FaceClusterer(
                 bestFaceId = f.id
             }
         }
-        for (i in 0 until dim) sum[i] /= faces.size
+        val faceCount = faces.size
+        for (i in 0 until dim) sum[i] = sum[i] / faceCount
         clusterDao.update(
             cluster.copy(
                 centroid = Embeddings.toBytes(l2Normalized(sum)),

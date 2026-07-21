@@ -88,6 +88,9 @@ android {
 
     buildFeatures {
         compose = true
+        // AGP 8+ disables BuildConfig generation by default; FaceAlbumApp uses
+        // `BuildConfig.DEBUG` to gate Timber's debug tree + crash-reporter.
+        buildConfig = true
     }
 
     composeOptions {
