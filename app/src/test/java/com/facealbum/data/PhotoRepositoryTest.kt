@@ -86,11 +86,24 @@ class PhotoRepositoryTest {
 
     @Test
     fun `copyToAlbumWithResult creates unique names for duplicates`() = runTest {
-        setupSuccessFlow("image/jpeg", ByteArrayInputStream(byteArrayOf(1)), CapturingOutputStream())
+        // Same filename ("same.jpg"), two different source photos. The repo
+        // must produce distinct MediaStore DISPLAY_NAME values so the two
+        // exported files don't collide on disk. It does that by folding a
+        // stable hash of the source URI into the stored filename.
+        val sourceA = Uri.parse("content://source/photo/one")
+        val sourceB = Uri.parse("content://source/photo/two")
+        every { context.contentResolver } returns resolver
+        every { resolver.getType(sourceA) } returns "image/jpeg"
+        every { resolver.getType(sourceB) } returns "image/jpeg"
+        every { resolver.insert(any(), any()) } returns destUri
+        every { resolver.openInputStream(sourceA) } returns ByteArrayInputStream(byteArrayOf(1))
+        every { resolver.openInputStream(sourceB) } returns ByteArrayInputStream(byteArrayOf(2))
+        every { resolver.openOutputStream(destUri) } returns CapturingOutputStream()
+        every { resolver.update(destUri, any(), null, null) } returns 1
 
         val repo = PhotoRepository(context)
-        repo.copyToAlbumWithResult(sourceUri, "Person", "same.jpg")
-        repo.copyToAlbumWithResult(sourceUri, "Person", "same.jpg")
+        repo.copyToAlbumWithResult(sourceA, "Person", "same.jpg")
+        repo.copyToAlbumWithResult(sourceB, "Person", "same.jpg")
 
         val insertedNames = mutableListOf<String>()
         verify(exactly = 2) {
@@ -98,7 +111,10 @@ class PhotoRepositoryTest {
                 insertedNames += it.getAsString("_display_name")
             })
         }
-        assertTrue(insertedNames[0] != insertedNames[1])
+        assertTrue(
+            "Expected distinct display names, got $insertedNames",
+            insertedNames[0] != insertedNames[1]
+        )
     }
 
     private fun setupSuccessFlow(mimeType: String, input: InputStream, output: OutputStream, updateRows: Int = 1) {
