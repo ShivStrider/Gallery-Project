@@ -100,8 +100,34 @@ android {
         }
     }
 
+    // MigrationTestHelper loads the exported schema JSON through the asset
+    // manager, and Robolectric resolves assets from the *app* variant's merged
+    // assets (`android_merged_assets` in test_config.properties) — a `test`
+    // source set is not consulted. Wiring the schemas into `debug` only keeps
+    // them out of the release APK; the migration tests are excluded from the
+    // release unit-test variant to match (see testReleaseUnitTest below).
+    sourceSets {
+        getByName("debug") {
+            assets.srcDirs(files("$projectDir/schemas"))
+        }
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
+    }
+}
+
+// The schema JSON files live in debug assets only (see the sourceSets block),
+// so the migration tests can only resolve them under the debug variant. They
+// assert migration SQL, which is variant-independent — running them once is
+// enough, and this keeps the release APK free of schema files.
+// `tasks.named("testReleaseUnitTest")` would fail here — AGP registers the
+// unit-test tasks after this script is evaluated. configureEach matches lazily.
+tasks.withType<Test>().configureEach {
+    if (name == "testReleaseUnitTest") {
+        filter {
+            excludeTestsMatching("com.facealbum.data.db.FaceAlbumDatabaseMigrationTest")
+        }
     }
 }
 
