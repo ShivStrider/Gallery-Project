@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("androidx.room")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
 }
@@ -38,10 +39,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
-        }
-
-        ksp {
-            arg("room.schemaLocation", "$projectDir/schemas")
         }
     }
 
@@ -106,6 +103,15 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+}
+
+// Room schema export. Each KSP task gets its own intermediate output directory
+// (build/intermediates/room/schemas/<task>/), so kspDebugKotlin and
+// kspReleaseKotlin no longer race on one file; copyRoomSchemas then consolidates
+// them here. Committing these JSON files is what makes MigrationTestHelper
+// coverage possible.
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 // Materialise the release keystore from $ANDROID_KEYSTORE_BASE64 only when an
