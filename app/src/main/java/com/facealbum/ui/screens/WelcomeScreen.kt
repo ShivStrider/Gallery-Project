@@ -46,17 +46,35 @@ fun WelcomeScreen(onPermissionGranted: () -> Unit) {
     val context = LocalContext.current
     var showPermissionDenied by remember { mutableStateOf(false) }
 
+    // POST_NOTIFICATIONS keeps the foreground-scan notification visible on
+    // Android 13+. It is optional: whether the user grants or denies it, we
+    // continue into the app — the scan runs either way, just silently if denied.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { onPermissionGranted() }
+
+    fun proceedAfterPhotoGranted() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onPermissionGranted()
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) onPermissionGranted() else showPermissionDenied = true
+        if (granted) proceedAfterPhotoGranted() else showPermissionDenied = true
     }
 
     LaunchedEffect(Unit) {
         if (ContextCompat.checkSelfPermission(context, photoPermission) ==
             PackageManager.PERMISSION_GRANTED
         ) {
-            onPermissionGranted()
+            proceedAfterPhotoGranted()
         }
     }
 
