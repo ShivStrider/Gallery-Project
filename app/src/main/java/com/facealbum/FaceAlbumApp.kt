@@ -9,7 +9,7 @@ import timber.log.Timber
  * Application class for FaceAlbum app.
  * Initializes Timber logging in debug builds.
  */
-class FaceAlbumApp : Application() {
+class   FaceAlbumApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
