@@ -86,7 +86,12 @@ fun FaceAlbumTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            // Bail rather than crash if the theme is ever hosted outside an
+            // Activity -- a ComposeView in a dialog or a service-backed window
+            // has no Activity context, and an unchecked cast would take the
+            // whole composition down with a ClassCastException. Losing the bar
+            // icon tint in that case is the harmless outcome.
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
             // Window.statusBarColor / navigationBarColor are deprecated in API
             // 35 and are no-ops once the app targets it -- the system bars are
             // always transparent under enforced edge-to-edge. Only the icon
