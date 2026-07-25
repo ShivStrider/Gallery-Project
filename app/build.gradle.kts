@@ -32,7 +32,7 @@ android {
         minSdk = 26
         targetSdk = 35
         // Keep versionCode monotonically increasing for every Play upload.
-        versionCode = 1
+        versionCode = 2
         // Semantic versioning (MAJOR.MINOR.PATCH) for user-facing releases.
         versionName = "1.0.0"
 
