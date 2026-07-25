@@ -45,17 +45,39 @@ Progress is tracked against seven milestones. Each milestone is graded ✅ done,
 - TalkBack pass: header order, live-region for scan progress.
 - Large-font (200%) sanity pass — no clipped labels.
 
-## Milestone 6 — Testing and bug fixing ⏳
+## Milestone 6 — Testing and bug fixing 🟨
 
-- Existing unit tests continue to pass after this pass.
-- Add Compose UI test for the new immersive viewer entry/exit.
-- Add ViewModel test for `favorite` toggle once wired.
+- Existing unit tests continue to pass after this pass. ✅ CI runs `./gradlew test`:
+  28 tests on the debug variant, 23 on release, 0 failures.
+- Room migration tests against exported schemas. ✅ `FaceAlbumDatabaseMigrationTest`
+  validates 1→2, 2→3 and 1→3 plus data preservation, against the committed baselines in
+  `app/schemas/`. Written as a Robolectric unit test so CI actually executes it.
+- Add Compose UI test for the new immersive viewer entry/exit. ⏳
+- Add ViewModel test for `favorite` toggle once wired. ⏳
+- **Instrumented tests are never executed.** `ClusterDetailScreenTest` and
+  `PeopleScreenTest` exist under `app/src/androidTest/`, but the workflow only runs
+  `test` and `lint` — there is no emulator job, so nothing in `androidTest/` has run in
+  CI. Either add a `connectedCheck` job or stop treating that directory as coverage.
 
-## Milestone 7 — Play Store release candidate ⏳
+## Milestone 7 — Play Store release candidate 🟨
 
-- Release build with real keystore + real `google-services.json`.
-- Adaptive launcher icons (foreground/background XML) shipped.
-- Privacy policy URL wired into Settings → About.
+- Adaptive launcher icons (foreground/background XML) shipped. ✅
+  `mipmap-anydpi-v26/ic_launcher{,_round}.xml` + `drawable/ic_launcher_{background,foreground}.xml`.
+- `targetSdk` / `compileSdk` 35, Java 17 bytecode. ✅ Required for Play uploads from
+  Aug 2025. Needed an AGP 8.13.2 / Gradle 8.13 toolchain upgrade to get there.
+- Release signing plumbing. ✅ `signingConfigs.release` reads `ANDROID_KEYSTORE_BASE64`
+  and the `decodeReleaseKeystore` task materialises it lazily, so only actual release
+  tasks pay for it.
+- Runtime `POST_NOTIFICATIONS` request on Android 13+. ⏳ PR #20 open — flip to ✅ on merge.
+- Supply the real keystore + real `google-services.json`. ⏳ **owner action** — both are
+  secrets, so they can only ever arrive from the environment, never from this repo.
+  CI stubs `google-services.json`; a fresh clone must too or the build fails at
+  `:app:processDebugGoogleServices` before compiling anything.
+- Privacy policy URL wired into Settings → About. ⏳ **needs a hosted URL.** Note the
+  string `settings_privacy_link` already exists in `strings.xml` but is referenced
+  nowhere in code — the label was added, the link never was.
+- `versionCode` currently 1 on `main` (2 in PR #21) with no release job to stamp it —
+  it must increase on every upload, so automate it before the first submission.
 - Play Console listing (title, short description, screenshots) — out of scope for this repo pass.
 
 ## What Ships in This Pass
