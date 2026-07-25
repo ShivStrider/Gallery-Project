@@ -23,12 +23,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MergeType
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.MergeType
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -494,7 +494,7 @@ private fun ActionRow(
             modifier = Modifier.weight(1f)
         )
         ActionButton(
-            icon = Icons.Outlined.MergeType,
+            icon = Icons.AutoMirrored.Outlined.MergeType,
             label = stringResource(R.string.person_detail_merge),
             onClick = onMerge,
             modifier = Modifier.weight(1f),
