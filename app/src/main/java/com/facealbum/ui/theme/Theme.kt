@@ -10,7 +10,6 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -88,8 +87,10 @@ fun FaceAlbumTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = scheme.background.toArgb()
-            window.navigationBarColor = scheme.background.toArgb()
+            // Window.statusBarColor / navigationBarColor are deprecated in API
+            // 35 and are no-ops once the app targets it -- the system bars are
+            // always transparent under enforced edge-to-edge. Only the icon
+            // appearance is still ours to set.
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
