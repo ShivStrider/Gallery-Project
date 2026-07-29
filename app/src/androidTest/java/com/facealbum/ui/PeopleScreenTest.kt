@@ -128,6 +128,45 @@ class PeopleScreenTest {
     }
 
     @Test
+    fun limitedAccessBanner_showsWhenPartialGrant() {
+        composeTestRule.setContent {
+            FaceAlbumTheme {
+                PeopleScreen(
+                    clusters = emptyList(),
+                    indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
+                    onClusterClick = {},
+                    onScanNow = {},
+                    onOpenSettings = {},
+                    limitedAccess = true
+                )
+            }
+        }
+        composeTestRule
+            .onNodeWithText("FaceAlbum can only see the photos you've selected.")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Manage").assertIsDisplayed()
+    }
+
+    @Test
+    fun limitedAccessBanner_hiddenWithFullAccess() {
+        composeTestRule.setContent {
+            FaceAlbumTheme {
+                PeopleScreen(
+                    clusters = emptyList(),
+                    indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
+                    onClusterClick = {},
+                    onScanNow = {},
+                    onOpenSettings = {},
+                    limitedAccess = false
+                )
+            }
+        }
+        composeTestRule.onNodeWithText("Manage").assertDoesNotExist()
+    }
+
+    @Test
     fun errorBanner_showsErrorMessage() {
         val errorProgress = MainViewModel.IndexProgress(
             running = false, done = 0, total = 0, faces = 0, clusters = 0,

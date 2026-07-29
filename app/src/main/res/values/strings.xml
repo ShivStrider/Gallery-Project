@@ -60,6 +60,8 @@
     <string name="people_scanning_progress">Scanning %1$d of %2$d · %3$d faces found</string>
     <string name="people_scanning_eta">About %1$s left</string>
     <string name="people_open_settings">Open settings</string>
+    <string name="people_limited_access_body">FaceAlbum can only see the photos you\'ve selected.</string>
+    <string name="people_limited_access_manage">Manage</string>
 
     <!-- Person detail -->
     <string name="person_detail_back">Back</string>

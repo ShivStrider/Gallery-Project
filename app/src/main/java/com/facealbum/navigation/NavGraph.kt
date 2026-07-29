@@ -21,6 +21,7 @@ import com.facealbum.ui.screens.ImageViewerScreen
 import com.facealbum.ui.screens.PeopleScreen
 import com.facealbum.ui.screens.SettingsScreen
 import com.facealbum.ui.screens.WelcomeScreen
+import com.facealbum.util.rememberHasPartialPhotoAccess
 
 sealed class Screen(val route: String) {
     object Welcome : Screen("welcome")
@@ -105,7 +106,8 @@ fun NavGraph(
                     navController.navigate(Screen.ClusterDetail.build(id))
                 },
                 onScanNow = { viewModel.startIndex(forceFullRescan = false) },
-                onOpenSettings = { navController.navigate(Screen.Settings.route) }
+                onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                limitedAccess = rememberHasPartialPhotoAccess()
             )
         }
 
