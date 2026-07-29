@@ -72,17 +72,24 @@ jobs:
           path: app/schemas/
           if-no-files-found: ignore
 
-      # Temporary: echo generated schemas so a newly added DB version can be
-      # committed from an environment without a local Android SDK. Replaced by
-      # a schema-drift guard once 4.json is committed.
-      - name: Print generated Room schemas
+      # The build regenerates app/schemas/. If that differs from what's
+      # committed, the migration tests are validating against a stale schema —
+      # which is exactly how a hand-written migration silently drifts from its
+      # entities. Print the diff and fail rather than let it pass unnoticed.
+      - name: Check Room schemas are committed and current
         if: always()
         run: |
-          for f in app/schemas/com.facealbum.data.db.FaceAlbumDatabase/*.json; do
-            echo "===== BEGIN $f ====="
-            cat "$f"
-            echo "===== END $f ====="
-          done
+          if ! git diff --quiet --exit-code -- app/schemas/; then
+            echo "::error::Generated Room schemas differ from the committed ones. Commit the regenerated app/schemas/ files."
+            git diff -- app/schemas/
+            exit 1
+          fi
+          if [ -n "$(git ls-files --others --exclude-standard app/schemas/)" ]; then
+            echo "::error::A generated Room schema is not committed:"
+            git ls-files --others --exclude-standard app/schemas/
+            exit 1
+          fi
+          echo "Room schemas are committed and match the build output."
 
       - name: Upload debug APK
         if: always()
