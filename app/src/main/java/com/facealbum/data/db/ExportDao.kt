@@ -84,6 +84,17 @@ interface ExportDao {
     @Query("SELECT COUNT(*) FROM export_items WHERE operationId = :operationId AND state = :state")
     suspend fun countInState(operationId: Long, state: String): Int
 
+    /** Per-state tallies behind the export report. */
+    @Query(
+        """
+        SELECT state AS state, COUNT(*) AS count
+        FROM export_items
+        WHERE operationId = :operationId
+        GROUP BY state
+        """
+    )
+    suspend fun stateCounts(operationId: Long): List<ExportStateCount>
+
     @Query(
         """
         UPDATE export_items
@@ -107,3 +118,9 @@ interface ExportDao {
     @Query("DELETE FROM export_operations")
     suspend fun clearOperations()
 }
+
+/** Projection row for [ExportDao.stateCounts]. */
+data class ExportStateCount(
+    val state: String,
+    val count: Int
+)
