@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -23,8 +22,29 @@ interface ClusterDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(cluster: ClusterEntity): Long
 
-    @Update
-    suspend fun update(cluster: ClusterEntity)
+    /**
+     * Targeted stat update used by the clusterer. Deliberately never touches
+     * displayName, so a concurrent user rename can't be clobbered by a
+     * cached entity write. Returns the number of rows updated — 0 means the
+     * cluster was deleted externally.
+     */
+    @Query(
+        """
+        UPDATE clusters
+        SET centroid = :centroid,
+            faceCount = :faceCount,
+            coverFaceId = :coverFaceId,
+            updatedAt = :updatedAt
+        WHERE id = :id
+        """
+    )
+    suspend fun updateStats(
+        id: Long,
+        centroid: ByteArray,
+        faceCount: Int,
+        coverFaceId: Long?,
+        updatedAt: Long
+    ): Int
 
     @Query("UPDATE clusters SET displayName = :name, updatedAt = :now WHERE id = :id")
     suspend fun rename(id: Long, name: String, now: Long)

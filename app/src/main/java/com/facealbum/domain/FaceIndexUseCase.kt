@@ -219,7 +219,7 @@ class FaceIndexUseCase(
         }
 
         Timber.i("Index pass done. Cleaning up empty clusters + merge pass.")
-        db.clusterDao().deleteEmpty()
+        clusterer.deleteEmpty()
         clusterer.mergeClose()
 
         db.scanSessionDao().finish(

@@ -44,4 +44,17 @@ interface FaceDao {
 
     @Query("SELECT * FROM faces WHERE id = :faceId LIMIT 1")
     suspend fun findById(faceId: Long): FaceEntity?
+
+    /**
+     * Quality lookup for a batch of face ids (cover faces at cache load).
+     * Callers must chunk [ids] below SQLite's 999-variable limit.
+     */
+    @Query("SELECT id, quality FROM faces WHERE id IN (:ids)")
+    suspend fun qualitiesForIds(ids: List<Long>): List<FaceQualityRow>
 }
+
+/** Projection row for [FaceDao.qualitiesForIds]. */
+data class FaceQualityRow(
+    val id: Long,
+    val quality: Float
+)

@@ -63,7 +63,7 @@ class ReclusterUseCase(
                 }
 
                 clusterer.mergeClose()
-                db.clusterDao().deleteEmpty()
+                clusterer.deleteEmpty()
                 Progress(processed = total, total = total, clusters = db.clusterDao().all().size)
             }
 

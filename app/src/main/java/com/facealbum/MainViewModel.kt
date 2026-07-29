@@ -9,6 +9,7 @@ import com.facealbum.config.FaceRecognitionConfig
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.data.db.findByIdsChunked
 import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.domain.ClusterAlbumExportUseCase
@@ -41,8 +42,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
     private val prefs: UserPreferences = UserPreferences.get(application)
-    private val clusterer = FaceClusterer(db.clusterDao(), db.faceDao())
     private val exportUseCase = ClusterAlbumExportUseCase(application)
+
+    // FaceClusterer caches centroids per instance, so it must be constructed
+    // per operation — a long-lived instance would go stale against scans and
+    // reclusters running in parallel workers.
+    private fun newClusterer() = FaceClusterer(db.clusterDao(), db.faceDao())
 
     val minClusterSize: StateFlow<Int> = prefs.minClusterSize
         .stateIn(
@@ -266,7 +271,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val photos = if (photoIds.isEmpty()) {
                 emptyList()
             } else {
-                db.photoDao().findByIds(photoIds).sortedByDescending { it.dateTaken }
+                db.photoDao().findByIdsChunked(photoIds).sortedByDescending { it.dateTaken }
             }
             val firstAppearance = photos.minOfOrNull { it.dateTaken }
             val latestAppearance = photos.maxOfOrNull { it.dateTaken }
@@ -295,7 +300,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun mergeClusters(fromClusterId: Long, intoClusterId: Long) {
         viewModelScope.launch {
             val targetName = db.clusterDao().byId(intoClusterId)?.displayName
-            clusterer.mergeUserRequested(fromClusterId, intoClusterId)
+            newClusterer().mergeUserRequested(fromClusterId, intoClusterId)
             if (_selectedCluster.value?.clusterId == fromClusterId) {
                 _selectedCluster.value = null
             } else if (_selectedCluster.value?.clusterId == intoClusterId) {
@@ -349,6 +354,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             for (face in faces) {
                 db.faceDao().assignToCluster(face.id, toClusterId)
             }
+            val clusterer = newClusterer()
             clusterer.recomputeFromFaces(fromClusterId)
             clusterer.recomputeFromFaces(toClusterId)
             loadCluster(fromClusterId)

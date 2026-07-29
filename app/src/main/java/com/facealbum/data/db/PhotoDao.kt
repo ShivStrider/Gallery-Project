@@ -43,6 +43,7 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): PhotoEntity?
 
+    /** Prefer [findByIdsChunked]: SQLite caps bind variables at 999. */
     @Query("SELECT * FROM photos WHERE id IN (:ids)")
     suspend fun findByIds(ids: List<Long>): List<PhotoEntity>
 
@@ -69,3 +70,10 @@ data class PhotoIdRow(
     val id: Long,
     val mediaStoreId: Long
 )
+
+/**
+ * Batched lookup that stays under SQLite's 999-bind-variable limit — a person
+ * appearing in more than 999 photos is entirely realistic for family members.
+ */
+suspend fun PhotoDao.findByIdsChunked(ids: List<Long>): List<PhotoEntity> =
+    ids.chunked(900).flatMap { findByIds(it) }
