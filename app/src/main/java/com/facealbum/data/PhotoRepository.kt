@@ -329,6 +329,87 @@ class PhotoRepository(private val context: Context) {
         VerifyResult.Verified
     }
 
+    /**
+     * Put a file back where it came from, streaming out of the exported copy.
+     *
+     * Used by undo after a move. The restored file is verified against
+     * [expectedSha256] before this reports success, so a failed restore is
+     * detectable rather than silent — the caller must keep the exported copy
+     * in that case, since it may then be the only surviving version.
+     *
+     * The restored file gets a new MediaStore id; the stale index row heals
+     * on the next incremental scan.
+     */
+    suspend fun restoreFromCopy(
+        sourceCopyUri: Uri,
+        targetRelativePath: String,
+        targetDisplayName: String,
+        expectedSha256: String?
+    ): CheckedCopyResult = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val mimeType = resolver.getType(sourceCopyUri)
+            ?: deriveMimeTypeFromFileName(targetDisplayName)
+        val relativePath = targetRelativePath.trimEnd('/')
+
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, targetDisplayName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val restoredUri = resolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return@withContext CheckedCopyResult.Failure(CopyToAlbumError.INSERT_FAILED)
+
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            var copied = 0L
+            val input = resolver.openInputStream(sourceCopyUri)
+                ?: throw CopyFailureException(CopyToAlbumError.SOURCE_OPEN_FAILED)
+            input.use { source ->
+                val output = resolver.openOutputStream(restoredUri)
+                    ?: throw CopyFailureException(CopyToAlbumError.DESTINATION_OPEN_FAILED)
+                output.use { sink ->
+                    val buffer = ByteArray(COPY_BUFFER_BYTES)
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read == -1) break
+                        sink.write(buffer, 0, read)
+                        digest.update(buffer, 0, read)
+                        copied += read
+                    }
+                    sink.flush()
+                }
+            }
+
+            val restoredSha = toHex(digest.digest())
+            if (expectedSha256 != null && !restoredSha.equals(expectedSha256, ignoreCase = true)) {
+                throw CopyFailureException(CopyToAlbumError.COPY_FAILED)
+            }
+
+            val complete = ContentValues().apply {
+                put(MediaStore.Images.Media.IS_PENDING, 0)
+            }
+            if (resolver.update(restoredUri, complete, null, null) <= 0) {
+                throw CopyFailureException(CopyToAlbumError.FINALIZE_FAILED)
+            }
+
+            CheckedCopyResult.Success(
+                uri = restoredUri,
+                bytesCopied = copied,
+                sha256 = restoredSha,
+                dedupHit = false
+            )
+        } catch (e: CopyFailureException) {
+            resolver.delete(restoredUri, null, null)
+            CheckedCopyResult.Failure(e.error)
+        } catch (e: Exception) {
+            resolver.delete(restoredUri, null, null)
+            CheckedCopyResult.Failure(CopyToAlbumError.COPY_FAILED)
+        }
+    }
+
     /** Hash a source file without copying it — used to check dedup hits. */
     suspend fun sha256Of(uri: Uri): String? = withContext(Dispatchers.IO) {
         try {
