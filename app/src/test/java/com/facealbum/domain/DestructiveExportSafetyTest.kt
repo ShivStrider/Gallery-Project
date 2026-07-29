@@ -56,40 +56,44 @@ class DestructiveExportSafetyTest {
     private val sourceNames = mutableMapOf<Long, String>()
 
     @Before
-    fun setUp() = runBlocking {
-        db = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext(),
-            FaceAlbumDatabase::class.java
-        ).allowMainThreadQueries().build()
-        clusterId = insertCluster("Ada")
-        otherClusterId = insertCluster("Grace")
-        photoRepository = mockk(relaxed = true)
+    fun setUp() {
+        // Block body: an expression body would inherit the last
+        // statement's type, and JUnit requires @Before to return void.
+        runBlocking {
+            db = Room.inMemoryDatabaseBuilder(
+                ApplicationProvider.getApplicationContext(),
+                FaceAlbumDatabase::class.java
+            ).allowMainThreadQueries().build()
+            clusterId = insertCluster("Ada")
+            otherClusterId = insertCluster("Grace")
+            photoRepository = mockk(relaxed = true)
 
-        every { photoRepository.makeStableDisplayName(any(), any()) } answers { firstArg<String>() }
-        coEvery { photoRepository.querySourceMetadata(any()) } answers {
-            firstArg<List<Long>>().associateWith { id ->
-                PhotoRepository.SourceMetadata(
-                    mediaStoreId = id,
-                    displayName = sourceNames[id] ?: "IMG_$id.jpg",
-                    relativePath = "DCIM/Camera/",
-                    sizeBytes = 100L
+            every { photoRepository.makeStableDisplayName(any(), any()) } answers { firstArg<String>() }
+            coEvery { photoRepository.querySourceMetadata(any()) } answers {
+                firstArg<List<Long>>().associateWith { id ->
+                    PhotoRepository.SourceMetadata(
+                        mediaStoreId = id,
+                        displayName = sourceNames[id] ?: "IMG_$id.jpg",
+                        relativePath = "DCIM/Camera/",
+                        sizeBytes = 100L
+                    )
+                }
+            }
+            coEvery { photoRepository.copyToAlbumChecked(any(), any(), any(), any()) } answers {
+                val destName = thirdArg<String>()
+                destinations[destName] = (destinations[destName] ?: 0L) + 1
+                PhotoRepository.CheckedCopyResult.Success(
+                    uri = Uri.parse("content://dest/$destName"),
+                    bytesCopied = 100L,
+                    sha256 = "hash",
+                    dedupHit = false
                 )
             }
-        }
-        coEvery { photoRepository.copyToAlbumChecked(any(), any(), any(), any()) } answers {
-            val destName = thirdArg<String>()
-            destinations[destName] = (destinations[destName] ?: 0L) + 1
-            PhotoRepository.CheckedCopyResult.Success(
-                uri = Uri.parse("content://dest/$destName"),
-                bytesCopied = 100L,
-                sha256 = "hash",
-                dedupHit = false
-            )
-        }
-        coEvery { photoRepository.verifyExportedCopy(any(), any(), any()) } returns
-            PhotoRepository.VerifyResult.Verified
-        coEvery { photoRepository.sourceStillExists(any()) } answers {
-            firstArg<Long>() !in deletedSources
+            coEvery { photoRepository.verifyExportedCopy(any(), any(), any()) } returns
+                PhotoRepository.VerifyResult.Verified
+            coEvery { photoRepository.sourceStillExists(any()) } answers {
+                firstArg<Long>() !in deletedSources
+            }
         }
     }
 

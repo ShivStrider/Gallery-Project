@@ -36,28 +36,32 @@ class ExportUndoUseCaseTest {
     private var clusterId: Long = 0
 
     @Before
-    fun setUp() = runBlocking {
-        db = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext(),
-            FaceAlbumDatabase::class.java
-        ).allowMainThreadQueries().build()
-        clusterId = db.clusterDao().insert(
-            ClusterEntity(
-                displayName = "Ada",
-                coverFaceId = null,
-                faceCount = 1,
-                centroid = Embeddings.toBytes(FloatArray(512)),
-                createdAt = 0L,
-                updatedAt = 0L
+    fun setUp() {
+        // Block body: an expression body would inherit the last
+        // statement's type, and JUnit requires @Before to return void.
+        runBlocking {
+            db = Room.inMemoryDatabaseBuilder(
+                ApplicationProvider.getApplicationContext(),
+                FaceAlbumDatabase::class.java
+            ).allowMainThreadQueries().build()
+            clusterId = db.clusterDao().insert(
+                ClusterEntity(
+                    displayName = "Ada",
+                    coverFaceId = null,
+                    faceCount = 1,
+                    centroid = Embeddings.toBytes(FloatArray(512)),
+                    createdAt = 0L,
+                    updatedAt = 0L
+                )
             )
-        )
-        photoRepository = mockk(relaxed = true)
-        useCase = ExportUndoUseCase(
-            context = ApplicationProvider.getApplicationContext(),
-            db = db,
-            photoRepository = photoRepository,
-            now = { 9L }
-        )
+            photoRepository = mockk(relaxed = true)
+            useCase = ExportUndoUseCase(
+                context = ApplicationProvider.getApplicationContext(),
+                db = db,
+                photoRepository = photoRepository,
+                now = { 9L }
+            )
+        }
     }
 
     @After
