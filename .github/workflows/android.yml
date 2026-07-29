@@ -62,8 +62,8 @@ jobs:
         run: ./gradlew assembleDebugAndroidTest --stacktrace
 
       # Room exports schema JSON during the build. They must be committed
-      # (MigrationTestHelper reads them), so surface them for retrieval when
-      # a new DB version is added.
+      # (MigrationTestHelper reads them from assets), so surface them for
+      # retrieval when a new DB version is added.
       - name: Upload Room schemas
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,6 +71,18 @@ jobs:
           name: room-schemas
           path: app/schemas/
           if-no-files-found: ignore
+
+      # Temporary: echo generated schemas so a newly added DB version can be
+      # committed from an environment without a local Android SDK. Replaced by
+      # a schema-drift guard once 4.json is committed.
+      - name: Print generated Room schemas
+        if: always()
+        run: |
+          for f in app/schemas/com.facealbum.data.db.FaceAlbumDatabase/*.json; do
+            echo "===== BEGIN $f ====="
+            cat "$f"
+            echo "===== END $f ====="
+          done
 
       - name: Upload debug APK
         if: always()
