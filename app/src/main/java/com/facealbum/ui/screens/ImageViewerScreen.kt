@@ -117,12 +117,12 @@ private fun ZoomablePhoto(
     onDismiss: () -> Unit,
     onToggleChrome: () -> Unit
 ) {
-    var scale by remember { mutableStateOf(1f) }
-    var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
+    // Keyed on the photo so zoom/pan reset when the Pager recycles this
+    // composable for a neighbouring page — otherwise zoom state bleeds over.
+    var scale by remember(photo.id) { mutableStateOf(1f) }
+    var offsetX by remember(photo.id) { mutableStateOf(0f) }
+    var offsetY by remember(photo.id) { mutableStateOf(0f) }
 
-    // Reset zoom + pan whenever we recompose for a different photo (Pager
-    // recycles composables between pages).
     val isZoomed = scale > 1.02f
 
     Box(
