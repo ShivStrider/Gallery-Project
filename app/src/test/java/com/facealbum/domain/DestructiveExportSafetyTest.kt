@@ -49,8 +49,8 @@ class DestructiveExportSafetyTest {
     /** Stands in for the device: ids removed from MediaStore. */
     private val deletedSources = mutableSetOf<Long>()
 
-    /** Destination copies the app currently has on disk. */
-    private val destinations = mutableMapOf<String, Long>()
+    /** How many times each destination name has been written. */
+    private val destinations = mutableMapOf<String, Int>()
 
     /** Source display names as MediaStore would report them. */
     private val sourceNames = mutableMapOf<Long, String>()
@@ -81,7 +81,7 @@ class DestructiveExportSafetyTest {
             }
             coEvery { photoRepository.copyToAlbumChecked(any(), any(), any(), any()) } answers {
                 val destName = thirdArg<String>()
-                destinations[destName] = (destinations[destName] ?: 0L) + 1
+                destinations[destName] = (destinations[destName] ?: 0) + 1
                 PhotoRepository.CheckedCopyResult.Success(
                     uri = Uri.parse("content://dest/$destName"),
                     bytesCopied = 100L,
