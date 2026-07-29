@@ -42,6 +42,11 @@
     <string name="notif_text_starting">Starting…</string>
     <string name="notif_text_progress">Scanned %1$d of %2$d photos</string>
 
+    <!-- Export notification -->
+    <string name="notif_channel_export">Album export</string>
+    <string name="notif_title_export">Copying photos to your album</string>
+    <string name="notif_text_export_progress">Copied %1$d of %2$d photos</string>
+
     <!-- Reclustering notification -->
     <string name="notif_channel_reclustering">Re-grouping</string>
     <string name="notif_title_reclustering">Re-grouping faces</string>

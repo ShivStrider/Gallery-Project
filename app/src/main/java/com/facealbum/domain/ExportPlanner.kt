@@ -9,6 +9,7 @@ import com.facealbum.data.db.ExportItemEntity
 import com.facealbum.data.db.ExportOperationEntity
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.findByIdsChunked
+import com.facealbum.work.ExportWorker
 import timber.log.Timber
 
 /**
@@ -26,7 +27,9 @@ class ExportPlanner(
     private val context: Context,
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(context),
     private val photoRepository: PhotoRepository = PhotoRepository(context),
-    private val now: () -> Long = { System.currentTimeMillis() }
+    private val now: () -> Long = { System.currentTimeMillis() },
+    /** Injected so tests can commit a plan without a WorkManager instance. */
+    private val enqueueWorker: (Long) -> Unit = { ExportWorker.enqueue(context, it) }
 ) {
 
     enum class Mode { COPY, MOVE }
@@ -202,6 +205,7 @@ class ExportPlanner(
             opId
         }
         Timber.i("Export operation $operationId committed with ${plan.items.size} item(s)")
+        enqueueWorker(operationId)
         return CommitResult.Started(operationId)
     }
 

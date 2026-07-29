@@ -50,9 +50,12 @@ class ExportPlannerTest {
             context = ApplicationProvider.getApplicationContext(),
             db = db,
             photoRepository = photoRepository,
-            now = { 1000L }
+            now = { 1000L },
+            enqueueWorker = { enqueued += it }
         )
     }
+
+    private val enqueued = mutableListOf<Long>()
 
     @After
     fun tearDown() {
@@ -190,6 +193,8 @@ class ExportPlannerTest {
         // Source identity is denormalised so undo works after the index changes.
         assertThat(items.map { it.sourceMediaStoreId }).containsExactly(1L, 2L)
         assertThat(items.all { it.sourceSha256 == null }).isTrue()
+        // Execution is handed to the worker exactly once.
+        assertThat(enqueued).containsExactly(opId)
     }
 
     @Test
@@ -199,6 +204,7 @@ class ExportPlannerTest {
 
         assertThat(planner.commit(plan)).isEqualTo(ExportPlanner.CommitResult.NothingToDo)
         assertThat(db.exportDao().operationsInState(ExportOperationEntity.STATE_PENDING)).isEmpty()
+        assertThat(enqueued).isEmpty()
     }
 
     /** Below API 30 the app cannot delete media it doesn't own. */
@@ -212,6 +218,8 @@ class ExportPlannerTest {
 
         assertThat(planner.commit(plan)).isEqualTo(ExportPlanner.CommitResult.MoveUnsupported)
         assertThat(db.exportDao().operationsInState(ExportOperationEntity.STATE_PENDING)).isEmpty()
+        // Nothing was scheduled, so no copy can start on an unsupported path.
+        assertThat(enqueued).isEmpty()
     }
 
     @Test
