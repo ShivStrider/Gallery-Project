@@ -38,6 +38,22 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test --stacktrace
 
+      # Always print per-suite counts. A green conclusion only proves nothing
+      # *ran and failed* — a suite that silently stops running (a filtered
+      # class, or one that fails to initialise) is invisible otherwise, and
+      # the safety suites are exactly where that must not go unnoticed.
+      - name: Test summary
+        if: always()
+        run: |
+          echo "=== Per-suite test counts ==="
+          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null | sort | while read -r f; do
+            sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: tests=\2 skipped=\3 failures=\4 errors=\5/p' "$f"
+          done
+          echo "=== Totals ==="
+          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null \
+            | xargs -r sed -n 's/.*<testsuite [^>]*tests="\([0-9]*\)"[^>]*failures="\([0-9]*\)"[^>]*errors="\([0-9]*\)".*/\1 \2 \3/p' \
+            | awk '{t+=$1; f+=$2; e+=$3} END {print "tests="t" failures="f" errors="e}'
+
       - name: Dump failing test reports
         if: failure()
         run: |
