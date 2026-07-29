@@ -29,6 +29,17 @@
     <string name="welcome_feature_export_title">Share as albums</string>
     <string name="welcome_feature_export_body">Export a person\'s photos as a folder anytime.</string>
 
+    <!-- Export preview / confirmation -->
+    <string name="export_preview_title">Review before exporting</string>
+    <string name="export_preview_files_label">Photos</string>
+    <string name="export_preview_size_label">Space needed</string>
+    <string name="export_preview_destination_label">Destination</string>
+    <string name="export_preview_sources_label">From</string>
+    <string name="export_mode_copy">Copy</string>
+    <string name="export_mode_move">Move</string>
+    <string name="export_preview_copy_explainer">Your photos stay where they are. Copies are added to the album.</string>
+    <string name="export_preview_move_explainer">Each photo is copied and checked first. Only then are you asked to delete the originals — nothing is removed without your confirmation.</string>
+
     <!-- Export complete -->
     <string name="export_complete_title">Album ready</string>
     <string name="export_complete_count_label">photos saved</string>
@@ -131,4 +142,16 @@
     <string name="settings_version_label">Version %1$s</string>
     <string name="settings_privacy_link">Privacy policy</string>
 
+    <plurals name="export_preview_file_count">
+        <item quantity="one">%d photo</item>
+        <item quantity="other">%d photos</item>
+    </plurals>
+    <plurals name="export_preview_other_people">
+        <item quantity="one">%d of these photos also shows someone else.</item>
+        <item quantity="other">%d of these photos also show someone else.</item>
+    </plurals>
+    <plurals name="export_preview_skipped">
+        <item quantity="one">%d photo can\'t be exported and will be skipped.</item>
+        <item quantity="other">%d photos can\'t be exported and will be skipped.</item>
+    </plurals>
 </resources>
