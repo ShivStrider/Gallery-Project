@@ -95,7 +95,10 @@ class ExportPlanner(
             val allowed = membership.toSet()
             photoRowIds.filter { it in allowed }
         }
-        var rejected = (photoRowIds?.size ?: 0) - eligibleIds.size
+        // Only an explicit selection can have entries rejected for membership;
+        // a whole-cluster export starts from the membership list itself, so
+        // nothing is dropped here. (Sources that vanished are counted below.)
+        var rejected = if (photoRowIds == null) 0 else photoRowIds.size - eligibleIds.size
         if (rejected > 0) {
             Timber.w("Export plan: rejected $rejected photo id(s) outside cluster $clusterId")
         }
