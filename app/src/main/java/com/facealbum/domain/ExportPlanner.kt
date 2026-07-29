@@ -8,6 +8,7 @@ import com.facealbum.data.PhotoRepository
 import com.facealbum.data.db.ExportItemEntity
 import com.facealbum.data.db.ExportOperationEntity
 import com.facealbum.data.db.FaceAlbumDatabase
+import com.facealbum.data.db.findByIdsChunked
 import timber.log.Timber
 
 /**
