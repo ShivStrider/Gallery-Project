@@ -25,6 +25,16 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Logs must never carry media identifiers (photo URIs, album/person
+      # names, file names) — only stable numeric IDs and enum names. This
+      # guard greps every Timber call for the usual leak patterns.
+      - name: Check logs for media identifiers
+        run: |
+          if grep -rnE 'Timber\.[a-z]+\(.*(\.uri|albumName|displayName|\.name\b)' app/src/main/java/; then
+            echo "::error::Timber call logs a media identifier (URI / album / display name). Log IDs instead."
+            exit 1
+          fi
+
       - name: Run unit tests
         run: ./gradlew test --stacktrace
 

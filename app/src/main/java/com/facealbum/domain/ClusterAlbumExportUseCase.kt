@@ -25,7 +25,7 @@ class ClusterAlbumExportUseCase(
             .let(::sanitizeAlbumName)
 
         val photoRowIds = db.faceDao().photoIdsInCluster(clusterId)
-        Timber.i("Exporting cluster $clusterId with ${photoRowIds.size} unique photos to '$albumName'")
+        Timber.i("Exporting cluster $clusterId with ${photoRowIds.size} unique photos")
 
         var success = 0
         var failure = 0
@@ -102,7 +102,7 @@ class ClusterAlbumExportUseCase(
         }
         if (eligibleIds.isEmpty()) return Result(0, rejected, albumName)
 
-        Timber.i("Partial export: cluster $clusterId, ${eligibleIds.size} photos → '$albumName'")
+        Timber.i("Partial export: cluster $clusterId, ${eligibleIds.size} photos")
 
         var success = 0
         var failure = rejected

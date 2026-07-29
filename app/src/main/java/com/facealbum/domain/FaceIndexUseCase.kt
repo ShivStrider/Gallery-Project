@@ -163,7 +163,7 @@ class FaceIndexUseCase(
                 .collect { result ->
                     currentCoroutineContext().ensureActive()
                     if (result.error != null) {
-                        Timber.e(result.error, "Failed to decode/detect photo ${result.photo.uri}")
+                        Timber.e(result.error, "Failed to decode/detect photo id=${result.photo.id}")
                         CrashReporter.recordNonFatal(
                             throwable = result.error,
                             source = "detect_photo",
@@ -177,7 +177,7 @@ class FaceIndexUseCase(
                         } catch (ce: CancellationException) {
                             throw ce
                         } catch (t: Throwable) {
-                            Timber.e(t, "Failed to embed/persist photo ${result.photo.uri}")
+                            Timber.e(t, "Failed to embed/persist photo id=${result.photo.id}")
                             CrashReporter.recordNonFatal(
                                 throwable = t,
                                 source = "embed_photo",
@@ -271,28 +271,45 @@ class FaceIndexUseCase(
 
     /**
      * Stage B: take an already-decoded bitmap + detected faces, embed each
-     * face, persist face rows, and assign them to clusters — all in a single
+     * face, then persist face rows and assign them to clusters in a single
      * Room transaction so a cancellation can't leave partial state.
+     *
+     * TFLite inference deliberately happens BEFORE the transaction opens: a
+     * many-face photo would otherwise hold SQLite's write lock across N model
+     * invocations, starving the UI's reactive queries. Stage B is strictly
+     * serial (single-thread dispatcher), so the existence pre-check cannot
+     * race with the write that follows it.
      */
     private suspend fun indexFromDetection(result: DetectResult): Int {
         val photo = result.photo
         val bitmap = result.bitmap
         val faces = result.faces
 
+        val preExisting = db.photoDao().findByMediaStoreId(photo.id)
+        if (preExisting != null && preExisting.dateModified >= photo.dateModified) {
+            // Up-to-date already; nothing to do. Defends against duplicate
+            // photos sharing the same DATE_MODIFIED that slip through the
+            // incremental query.
+            return 0
+        }
+
+        // Model inference, outside any transaction.
+        val embedded: List<EmbeddedFace> = if (bitmap == null) {
+            emptyList()
+        } else {
+            faces.mapNotNull { face ->
+                computeEmbedding(bitmap, face.boundingBox)?.let { EmbeddedFace(face, it) }
+            }
+        }
+        val photoArea = bitmap?.let { (it.width * it.height).coerceAtLeast(1).toFloat() }
+
         return db.withTransaction {
             val existing = db.photoDao().findByMediaStoreId(photo.id)
-            if (existing != null && existing.dateModified >= photo.dateModified) {
-                // Up-to-date already; nothing to do. Defends against duplicate
-                // photos sharing the same DATE_MODIFIED that slip through the
-                // incremental query.
-                return@withTransaction 0
-            }
-
             val now = System.currentTimeMillis()
 
             if (bitmap == null) {
                 // Persist a faceCount=0 row anyway so `lastIndexedDateModified` advances.
-                Timber.w("Could not load bitmap for photo ${photo.uri}; recording empty entry")
+                Timber.w("Could not load bitmap for photo id=${photo.id}; recording empty entry")
                 if (existing == null) {
                     db.photoDao().insert(
                         PhotoEntity(
@@ -353,12 +370,10 @@ class FaceIndexUseCase(
                 existing.id
             }
 
-            if (faces.isEmpty()) return@withTransaction 0
+            if (embedded.isEmpty() || photoArea == null) return@withTransaction 0
 
-            val photoArea = (bitmap.width * bitmap.height).coerceAtLeast(1).toFloat()
             var added = 0
-            for (face in faces) {
-                val embedding = computeEmbedding(bitmap, face.boundingBox) ?: continue
+            for ((face, embedding) in embedded) {
                 val quality = ((face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea)
                     .coerceIn(0f, 1f)
                 val faceRowId = db.faceDao().insert(
@@ -395,6 +410,12 @@ class FaceIndexUseCase(
         val bitmap: Bitmap?,
         val faces: List<Face>,
         val error: Throwable?
+    )
+
+    /** A detected face paired with its embedding, computed pre-transaction. */
+    private data class EmbeddedFace(
+        val face: Face,
+        val embedding: FloatArray
     )
 
     class ModelNotReadyException(message: String) : RuntimeException(message)
