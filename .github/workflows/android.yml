@@ -61,6 +61,17 @@ jobs:
       - name: Compile instrumentation tests
         run: ./gradlew assembleDebugAndroidTest --stacktrace
 
+      # Room exports schema JSON during the build. They must be committed
+      # (MigrationTestHelper reads them), so surface them for retrieval when
+      # a new DB version is added.
+      - name: Upload Room schemas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas
+          path: app/schemas/
+          if-no-files-found: ignore
+
       - name: Upload debug APK
         if: always()
         uses: actions/upload-artifact@v4

@@ -323,6 +323,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             db.faceDao().clear()
             db.clusterDao().clear()
             db.photoDao().clear()
+            // The export log records source paths and file names, so "delete
+            // face data" has to take it too (items cascade with operations).
+            db.exportDao().clearOperations()
         }
     }
 
