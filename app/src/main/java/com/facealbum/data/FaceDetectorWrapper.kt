@@ -42,14 +42,6 @@ class FaceDetectorWrapper(context: Context) {
             }
     }
 
-    /**
-     * Detect the largest face in a bitmap (kept for callers that only care about one).
-     */
-    suspend fun detectLargestFace(bitmap: Bitmap): Face? =
-        detectAllFaces(bitmap).maxByOrNull {
-            it.boundingBox.width() * it.boundingBox.height()
-        }
-
     fun close() {
         detector.close()
     }

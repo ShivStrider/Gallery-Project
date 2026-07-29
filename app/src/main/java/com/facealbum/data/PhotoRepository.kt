@@ -30,20 +30,6 @@ class PhotoRepository(private val context: Context) {
     }
 
     /**
-     * Query the most recent photos from the device.
-     *
-     * @param limit Maximum number of photos to retrieve
-     * @return List of photo information, sorted by date taken (newest first)
-     */
-    suspend fun queryRecentPhotos(limit: Int): List<PhotoInfo> = withContext(Dispatchers.IO) {
-        queryPhotos(
-            selection = "${MediaStore.Images.Media.MIME_TYPE} LIKE ?",
-            selectionArgs = arrayOf("image/%"),
-            sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC LIMIT $limit"
-        )
-    }
-
-    /**
      * Query every image in MediaStore that was added or modified after [sinceDateModifiedSec].
      * `dateModified` is in seconds since epoch (MediaStore convention).
      *
@@ -132,13 +118,6 @@ class PhotoRepository(private val context: Context) {
             }
         }
         return photos
-    }
-
-    suspend fun copyToAlbum(sourceUri: Uri, albumName: String, originalFileName: String): Uri? {
-        return when (val result = copyToAlbumWithResult(sourceUri, albumName, originalFileName)) {
-            is CopyToAlbumResult.Success -> result.uri
-            is CopyToAlbumResult.Failure -> null
-        }
     }
 
     /**

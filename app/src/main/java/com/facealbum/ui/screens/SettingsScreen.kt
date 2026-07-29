@@ -57,7 +57,7 @@ fun SettingsScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = stringResource(R.string.cluster_detail_back)
+                            contentDescription = stringResource(R.string.person_detail_back)
                         )
                     }
                 }

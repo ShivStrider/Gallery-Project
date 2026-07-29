@@ -59,7 +59,4 @@ interface ClusterDao {
 
     @Query("DELETE FROM clusters")
     suspend fun clear()
-
-    @Query("DELETE FROM clusters")
-    suspend fun deleteAll()
 }

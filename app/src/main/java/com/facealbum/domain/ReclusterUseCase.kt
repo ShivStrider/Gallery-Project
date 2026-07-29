@@ -43,7 +43,7 @@ class ReclusterUseCase(
 
             val result = db.withTransaction {
                 db.faceDao().clearAllClusterAssignments()
-                db.clusterDao().deleteAll()
+                db.clusterDao().clear()
 
                 val faces = db.faceDao().allOrderedByQualityDesc()
                 val total = faces.size
