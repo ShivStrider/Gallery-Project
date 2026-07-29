@@ -49,9 +49,23 @@ interface PhotoDao {
     @Query("SELECT MAX(dateModified) FROM photos")
     suspend fun lastIndexedDateModified(): Long?
 
+    /** Lightweight projection for MediaStore reconciliation. */
+    @Query("SELECT id, mediaStoreId FROM photos")
+    suspend fun idAndMediaStoreIdRows(): List<PhotoIdRow>
+
+    /** Callers must chunk [ids] below SQLite's 999-variable limit. */
+    @Query("DELETE FROM photos WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("SELECT COUNT(*) FROM photos")
     suspend fun count(): Int
 
     @Query("DELETE FROM photos")
     suspend fun clear()
 }
+
+/** Projection row for [PhotoDao.idAndMediaStoreIdRows]. */
+data class PhotoIdRow(
+    val id: Long,
+    val mediaStoreId: Long
+)

@@ -67,6 +67,30 @@ class PhotoRepository(private val context: Context) {
             }
         }
 
+    /**
+     * Snapshot of every image _ID currently visible in MediaStore. Used to
+     * reconcile the local index against photos deleted or moved outside the
+     * app. Under Android 14 partial access this returns only the user's
+     * selection — reconciliation callers must treat "not visible" as
+     * "unavailable", which is still the correct grouping behaviour.
+     */
+    suspend fun queryAllMediaStoreIds(): Set<Long> = withContext(Dispatchers.IO) {
+        val ids = HashSet<Long>()
+        context.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Images.Media._ID),
+            "${MediaStore.Images.Media.MIME_TYPE} LIKE ?",
+            arrayOf("image/%"),
+            null
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getLong(idCol))
+            }
+        }
+        ids
+    }
+
     private fun queryPhotos(
         selection: String,
         selectionArgs: Array<String>,

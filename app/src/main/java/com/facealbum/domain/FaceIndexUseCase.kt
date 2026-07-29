@@ -101,6 +101,12 @@ class FaceIndexUseCase(
         val mergeT = prefs.mergeThreshold.first()
         clusterer = FaceClusterer(db.clusterDao(), db.faceDao(), assignT, mergeT)
 
+        // Photos deleted (or hidden by a narrowed Android 14 selection) outside
+        // the app must leave the index, or their faces haunt the groups forever.
+        // Changed photos need no special pass: DATE_MODIFIED advances, so the
+        // incremental query below re-indexes them.
+        reconcileDeletedPhotos(clusterer)
+
         val lastIndexed = if (forceFullRescan) 0L else db.photoDao().lastIndexedDateModified() ?: 0L
         Timber.i("Index pass start, lastIndexedDateModified=$lastIndexed, forceFullRescan=$forceFullRescan")
 
@@ -233,6 +239,34 @@ class FaceIndexUseCase(
         )
         onProgress(finalProgress)
         return totalFacesAdded
+    }
+
+    /**
+     * Removes index rows whose MediaStore records no longer exist, then
+     * repairs every cluster that lost faces. Runs inside one transaction so a
+     * mid-pass kill leaves the previous consistent state.
+     */
+    internal suspend fun reconcileDeletedPhotos(clusterer: FaceClusterer) {
+        val known = db.photoDao().idAndMediaStoreIdRows()
+        if (known.isEmpty()) return
+        val visible = photoRepository.queryAllMediaStoreIds()
+        val vanished = known.filter { it.mediaStoreId !in visible }
+        if (vanished.isEmpty()) return
+
+        Timber.i("Reconcile: ${vanished.size} indexed photo(s) no longer in MediaStore")
+        db.withTransaction {
+            val affectedClusters = mutableSetOf<Long>()
+            for (row in vanished) {
+                affectedClusters += db.faceDao().facesForPhoto(row.id).mapNotNull { it.clusterId }
+            }
+            vanished.map { it.id }.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+                db.photoDao().deleteByIds(chunk) // faces cascade via FK
+            }
+            for (cid in affectedClusters) {
+                clusterer.recomputeFromFaces(cid)
+            }
+            db.clusterDao().deleteEmpty()
+        }
     }
 
     /**
@@ -376,5 +410,8 @@ class FaceIndexUseCase(
          * 1024-px max dimension stays well under typical heap budgets.
          */
         private const val BUFFER_BETWEEN_STAGES = 2
+
+        /** Stay under SQLite's 999-bind-variable limit for IN() clauses. */
+        private const val SQL_VARIABLE_CHUNK = 900
     }
 }
