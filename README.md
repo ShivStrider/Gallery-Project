@@ -33,7 +33,7 @@ telemetry.
 | Persistence | Room 2.6 (`photos / faces / clusters / albums`) |
 | Background | WorkManager 2.9 (foreground service, `dataSync` type) |
 | Image loading | Coil |
-| Logging / crash | Timber + Firebase Crashlytics |
+| Logging / crash | Timber (local-only, debug builds) |
 | Min / target SDK | API 26 (Android 8.0) / API 34 (Android 14) |
 
 ### Pipeline
@@ -68,7 +68,7 @@ ClusterAlbumExportUseCase copies photos via PhotoRepository.copyToAlbumWithResul
 app/src/main/java/com/facealbum/
 ├── MainActivity.kt
 ├── MainViewModel.kt                    # cluster-based UI state, WorkManager bridge
-├── FaceAlbumApp.kt                     # Timber + Crashlytics init
+├── FaceAlbumApp.kt                     # Timber init + periodic indexing
 ├── config/
 │   └── FaceRecognitionConfig.kt        # thresholds, model input size, batch sizes
 ├── data/
@@ -173,7 +173,7 @@ Or just hit Run in Android Studio.
 - Tap *Re-scan entire library* in Settings to rebuild from scratch (e.g. after changing similarity thresholds).
 
 **Privacy**
-- Network: there is no `INTERNET` permission on the indexer path. Crashlytics is the one exception and is opt-in for internal builds only.
+- Network: the app declares no `INTERNET` permission and depends on no SDK that adds one. Everything runs on-device.
 - Storage writes: limited to `Pictures/FaceAlbums/<Name>/` via scoped `MediaStore` inserts. The app cannot modify any other directory.
 
 ## Database
@@ -210,10 +210,11 @@ The full end-to-end loop has to be exercised on a real device — see *Release a
 - Never commit keystore files or plaintext signing passwords.
 - Configure signing from environment / CI secrets only:
   - `ANDROID_KEYSTORE_BASE64`
-  - `ANDROID_KEYSTORE_PASSWORD`
+  - `ANDROID_STORE_PASSWORD`
   - `ANDROID_KEY_ALIAS`
   - `ANDROID_KEY_PASSWORD`
 - CI decodes the keystore at runtime, signs the `release` build, then securely deletes the temp keystore.
+- `assembleRelease`/`bundleRelease` refuse to run when `ANDROID_KEYSTORE_BASE64` is unset — a release artifact is never silently debug-signed.
 
 ### Versioning
 - `versionCode` increments for every distributable build.
@@ -243,7 +244,7 @@ For every release pipeline run, publish and retain:
 ## Privacy & security
 
 - **No internet**: face detection, embedding, clustering, and export all run on-device.
-- **No analytics**: only Firebase Crashlytics, gated to internal builds (`BuildConfig.DEBUG`).
+- **No analytics, no crash telemetry**: failure reporting is local-only (Timber in debug builds; persisted failure records in the app database).
 - **Minimal permissions**: `READ_MEDIA_IMAGES` (Android 13+) / `READ_EXTERNAL_STORAGE` (≤32), `POST_NOTIFICATIONS` for the indexer notification, and the foreground-service permissions WorkManager requires on Android 14+.
 - **Scoped writes**: only `Pictures/FaceAlbums/<Name>/` via `MediaStore`. The app cannot touch any other folder.
 - **Open source**: every line of the pipeline is auditable in this repo.

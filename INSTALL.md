@@ -37,36 +37,12 @@ takes ~3–5 minutes.
 
 ---
 
-## 2. Set up Firebase (optional but recommended)
+## 2. No cloud services to set up
 
-The app uses Firebase Crashlytics for crash reports on internal builds. Without
-a Firebase config, Gradle will fail at the `google-services` plugin step.
-
-Two paths:
-
-**Path A — give it a real Firebase project (recommended for shipping):**
-1. Go to https://console.firebase.google.com and create a project.
-2. Add an Android app with package name `com.facealbum`.
-3. Download `google-services.json`.
-4. Drop it at `app/google-services.json` (gitignored — keep it that way).
-
-**Path B — short-circuit Firebase entirely (fastest for tinkering):**
-Open `app/build.gradle.kts` and comment out the two Firebase lines in `plugins {}`:
-
-```kotlin
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
-    // id("com.google.gms.google-services")
-    // id("com.google.firebase.crashlytics")
-}
-```
-
-…and in `dependencies {}` comment out the two `firebase-*` lines. The
-`CrashReporter` calls will then go through a stubbed Crashlytics that no-ops.
-
-> Don't commit Path B changes back — the release pipeline expects Firebase.
+The app is fully offline by design: no Firebase, no `google-services.json`, no
+API keys, no accounts. Crash/failure reporting is local-only (Timber, debug
+builds). A fresh clone builds without any service configuration — skip
+straight to the model step below.
 
 ---
 
@@ -232,11 +208,6 @@ If any of these fail, the most likely culprits are:
 **`Could not find org.tensorflow:tensorflow-lite:2.14.0`** or similar
 dependency error.
 Cause: bad network or Gradle cache. Fix: `./gradlew --refresh-dependencies build`.
-
-**`File google-services.json is missing.`**
-You're on Path B but didn't fully short-circuit. Either drop in the JSON
-(Path A) or comment out *both* Firebase plugins *and* the firebase-* deps
-(Path A in §2).
 
 **App opens, indexes 0 photos.**
 Photo permission was granted as "Selected photos only" or denied. Open

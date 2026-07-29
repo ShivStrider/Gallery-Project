@@ -53,7 +53,7 @@ Progress is tracked against seven milestones. Each milestone is graded ✅ done,
 
 ## Milestone 7 — Play Store release candidate ⏳
 
-- Release build with real keystore + real `google-services.json`.
+- Release build with real keystore.
 - Adaptive launcher icons (foreground/background XML) shipped.
 - Privacy policy URL wired into Settings → About.
 - Play Console listing (title, short description, screenshots) — out of scope for this repo pass.

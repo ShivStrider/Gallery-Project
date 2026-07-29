@@ -5,8 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("androidx.room")
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
 }
 
 val mobileFaceNetAsset = layout.projectDirectory.file("src/main/assets/mobile_face_net.tflite")
@@ -156,12 +154,35 @@ tasks.register("decodeReleaseKeystore") {
     }
 }
 
+// A release artifact produced without the real keystore is silently
+// debug-signed (see the signingConfig fallback above, which keeps
+// configuration-time resolution working for test/lint). That artifact looks
+// like a release build and could be distributed by mistake — refuse to
+// produce one instead.
+tasks.register("verifyReleaseSigningConfigured") {
+    group = "verification"
+    description = "Fails release artifact builds when the release keystore is not configured."
+    val keystoreConfigured = System.getenv("ANDROID_KEYSTORE_BASE64") != null
+    doLast {
+        if (!keystoreConfigured) {
+            throw GradleException(
+                "Refusing to build a release artifact without release signing. " +
+                    "Set ANDROID_KEYSTORE_BASE64 / ANDROID_STORE_PASSWORD / " +
+                    "ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD (see README.md, " +
+                    "'Secure signing'). Without them the output would be " +
+                    "debug-signed but named like a release."
+            )
+        }
+    }
+}
+
 // Only gate the actual installable/distributable outputs on the model asset —
 // not every task whose name happens to contain "Release" (test, lint, etc.).
 // The same gate also wires the lazy keystore decode in front of release builds.
 tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease") }
     .configureEach {
         dependsOn("verifyFaceModelPresent")
+        dependsOn("verifyReleaseSigningConfigured")
         dependsOn("decodeReleaseKeystore")
     }
 
@@ -210,12 +231,6 @@ dependencies {
 
     // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
-
-    // Firebase BOM
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
-    // KTX side-modules were folded into the main artifacts in Firebase BOM
-    // 33+; -ktx variants no longer publish. Use the plain module directly.
-    implementation("com.google.firebase:firebase-crashlytics")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

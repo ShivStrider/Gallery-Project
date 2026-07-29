@@ -99,7 +99,7 @@ Deferred items:
 
 ## Play Store Blockers
 
-- Real `google-services.json` needs to replace the CI stub before publish.
+- ~~Real `google-services.json` needs to replace the CI stub before publish.~~ Obsolete: Firebase was removed entirely; no service config is needed.
 - Adaptive launcher icons need real XML (the tree has a
   `README_ICONS.txt` placeholder).
 - Privacy policy URL surface (string is defined, target URL not decided).
