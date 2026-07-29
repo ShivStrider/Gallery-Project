@@ -45,14 +45,17 @@ jobs:
       - name: Test summary
         if: always()
         run: |
-          echo "=== Per-suite test counts ==="
-          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null | sort | while read -r f; do
-            sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: tests=\2 skipped=\3 failures=\4 errors=\5/p' "$f"
-          done
-          echo "=== Totals ==="
+          # Suites run under both the debug and release unit-test variants, so
+          # the same class appears twice. Deduplicate by suite line before
+          # counting — a total that silently doubles is worse than none.
           find app/build/test-results -name 'TEST-*.xml' 2>/dev/null \
-            | xargs -r sed -n 's/.*<testsuite [^>]*tests="\([0-9]*\)"[^>]*failures="\([0-9]*\)"[^>]*errors="\([0-9]*\)".*/\1 \2 \3/p' \
-            | awk '{t+=$1; f+=$2; e+=$3} END {print "tests="t" failures="f" errors="e}'
+            | xargs -r sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1 \2 \3 \4 \5/p' \
+            | sort -u > /tmp/suite-counts.txt
+          echo "=== Per-suite test counts (deduplicated across variants) ==="
+          awk '{print $1": tests="$2" skipped="$3" failures="$4" errors="$5}' /tmp/suite-counts.txt
+          echo "=== Totals ==="
+          awk '{t+=$2; s+=$3; f+=$4; e+=$5} END {print "suites="NR" tests="t" skipped="s" failures="f" errors="e}' \
+            /tmp/suite-counts.txt
 
       - name: Dump failing test reports
         if: failure()
