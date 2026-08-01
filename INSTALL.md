@@ -85,7 +85,12 @@ cd MobileFaceNet_TF/arch/pretrained_model
 
 python - <<'PY'
 import tensorflow as tf
-converter = tf.lite.TFLiteConverter.from_frozen_graph(
+
+# NOTE: from_frozen_graph is a TF1-era entry point. It is NOT on
+# tf.lite.TFLiteConverter in TensorFlow 2 — calling it there raises
+# AttributeError. Reach it through the compat.v1 shim, which TF 2.x still
+# ships. (If you are on TF 1.15, drop the `.compat.v1`.)
+converter = tf.compat.v1.lite.TFLiteConverter.from_frozen_graph(
     graph_def_file="MobileFaceNet_9925_9680.pb",
     input_arrays=["input"],
     output_arrays=["embeddings"],
