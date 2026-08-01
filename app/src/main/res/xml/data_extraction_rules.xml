@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Defence in depth for android:allowBackup="false" (see AndroidManifest.xml).
+  The Room database (face_album.db) holds face embeddings (biometric-derived
+  vectors) and user-assigned person names; the DataStore preferences file
+  holds the favourite-person set. Neither should ever leave this device via
+  Android's cloud backup or device-to-device transfer, even if allowBackup
+  is ever re-enabled by mistake. Every domain is excluded so there is
+  nothing left for either mechanism to copy.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="root" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="root" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -105,12 +105,16 @@ Deferred items:
 - Privacy policy URL surface (string is defined, target URL not decided).
 - `mobile_face_net.tflite` model asset must be present for release (already
   gated by `verifyFaceModelPresent`).
-- `POST_NOTIFICATIONS` is declared but not requested at runtime — Android 13+
-  will silently drop the foreground-service notification unless the permission
-  is granted. Small follow-up: request during Welcome flow (skill:
-  `system/edge-to-edge`, `play/play-policy-insights`).
-- `targetSdk` is 34; per official skills recommendation should bump to 35 in a
-  fast-follow pass. Not a Play blocker for the current billing window.
+- ~~`POST_NOTIFICATIONS` is declared but not requested at runtime.~~ Resolved:
+  `PeopleScreen` requests it at runtime when the first scan starts; denial
+  degrades gracefully (scan still runs, just without a visible notification).
+- ~~`targetSdk` is 34; should bump to 35.~~ Resolved: `compileSdk`/`targetSdk`
+  are both 35 in `app/build.gradle.kts`.
+- ~~`allowBackup="true"` with no backup rules.~~ Resolved (Phase 8):
+  `android:allowBackup="false"`, plus `data_extraction_rules.xml` /
+  `backup_rules.xml` excluding every backup domain as defence in depth.
+  `docs/release/compliance.md` rewritten to match the post-Firebase,
+  post-hardening state. See `docs/plan/08-privacy-security.md`.
 
 ## Recommended Future Enhancements
 

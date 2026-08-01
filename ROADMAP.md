@@ -11,7 +11,8 @@ Progress is tracked against seven milestones. Each milestone is graded ✅ done,
 - Export a person's photos to Pictures/FaceAlbums/&lt;name&gt;.
 - Adjustable clustering strictness + minimum cluster size.
 - Re-cluster without re-scan.
-- Room migrations 1→2→3 preserving user data.
+- Room migrations 1→2→3→4 preserving user data (v4 adds the export
+  transaction log: `export_operations` / `export_items`).
 
 ## Milestone 2 — UI redesign complete 🟨
 

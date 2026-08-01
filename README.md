@@ -34,7 +34,7 @@ telemetry.
 | Background | WorkManager 2.9 (foreground service, `dataSync` type) |
 | Image loading | Coil |
 | Logging / crash | Timber (local-only, debug builds) |
-| Min / target SDK | API 26 (Android 8.0) / API 34 (Android 14) |
+| Min / target SDK | API 26 (Android 8.0) / API 35 (Android 15) |
 
 ### Pipeline
 
@@ -116,7 +116,7 @@ app/src/main/java/com/facealbum/
 
 ### Prerequisites
 - Android Studio Hedgehog (2023.1.1) or newer
-- Android SDK 34
+- Android SDK 35
 - Physical device on API 26+ (emulators work but are slow; ML Kit + TFLite + photo I/O all benefit from real hardware)
 
 ### 1. Clone
@@ -184,6 +184,7 @@ Or just hit Run in Android Studio.
 | `faces` | One row per detected face — bounding box, embedding (BLOB, 512 floats little-endian), quality, FK to cluster. |
 | `clusters` | One row per person — display name (nullable until tagged), running-mean centroid, cover face, face count. |
 | `albums` | History of exports — which cluster was exported to which path, when, how many photos. |
+| `export_operations` / `export_items` | Per-file transaction log for the export pipeline (source path, filename, per-item outcome) — enables resume/verify/undo and is cleared by Settings → "Delete face data" along with `photos`/`faces`/`clusters`. |
 
 Schema files are exported under `app/schemas/` for migration safety.
 
@@ -243,11 +244,14 @@ For every release pipeline run, publish and retain:
 
 ## Privacy & security
 
-- **No internet**: face detection, embedding, clustering, and export all run on-device.
+- **No internet**: face detection, embedding, clustering, and export all run on-device. No `INTERNET` permission is declared, and no dependency merges one in.
 - **No analytics, no crash telemetry**: failure reporting is local-only (Timber in debug builds; persisted failure records in the app database).
-- **Minimal permissions**: `READ_MEDIA_IMAGES` (Android 13+) / `READ_EXTERNAL_STORAGE` (≤32), `POST_NOTIFICATIONS` for the indexer notification, and the foreground-service permissions WorkManager requires on Android 14+.
+- **No backup exfiltration**: `android:allowBackup="false"`, plus `dataExtractionRules`/`fullBackupContent` excluding the database and DataStore as defence in depth — face embeddings and person names never ride Android Auto Backup to Google Drive.
+- **Minimal permissions**: `READ_MEDIA_IMAGES` (Android 13+) / `READ_MEDIA_VISUAL_USER_SELECTED` (Android 14+ partial library grant) / `READ_EXTERNAL_STORAGE` (≤32) for reading the library, `POST_NOTIFICATIONS` for the indexer's foreground-service notification, and the foreground-service permissions WorkManager requires.
 - **Scoped writes**: only `Pictures/FaceAlbums/<Name>/` via `MediaStore`. The app cannot touch any other folder.
 - **Open source**: every line of the pipeline is auditable in this repo.
+
+See [`docs/release/compliance.md`](./docs/release/compliance.md) for the full data-handling and Play Data safety writeup.
 
 ## Roadmap
 
