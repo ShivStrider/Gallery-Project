@@ -53,6 +53,14 @@
     <string name="export_undo_copy">Undo — remove the copies</string>
     <string name="export_undo_move">Undo — put the originals back</string>
 
+    <!-- Export: one-shot messages -->
+    <string name="snack_nothing_to_export">Nothing to export</string>
+    <string name="snack_move_unsupported">Move isn\'t available on this device; try Copy instead</string>
+
+    <!-- Export: stranded delete-consent banner (People screen) -->
+    <string name="export_consent_banner_message">Finish moving %1$d photos to %2$s</string>
+    <string name="export_consent_banner_action">Continue</string>
+
     <!-- Indexing notification -->
     <string name="notif_channel_indexing">Face indexing</string>
     <string name="notif_title_indexing">Finding faces in your photos</string>

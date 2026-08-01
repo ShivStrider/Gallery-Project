@@ -12,7 +12,6 @@ import com.facealbum.data.db.PhotoEntity
 import com.facealbum.data.db.findByIdsChunked
 import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.data.prefs.UserPreferences
-import com.facealbum.domain.ClusterAlbumExportUseCase
 import com.facealbum.domain.FaceClusterer
 import com.facealbum.work.FaceIndexWorker
 import com.facealbum.work.ReclusterWorker
@@ -42,7 +41,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
     private val prefs: UserPreferences = UserPreferences.get(application)
-    private val exportUseCase = ClusterAlbumExportUseCase(application)
 
     // FaceClusterer caches centroids per instance, so it must be constructed
     // per operation — a long-lived instance would go stale against scans and
@@ -178,15 +176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val isFavorite: Boolean
     )
 
-    private val _exportEvents = MutableSharedFlow<ClusterAlbumExportUseCase.Result>(
-        replay = 0,
-        extraBufferCapacity = 1
-    )
-    val exportEvents: SharedFlow<ClusterAlbumExportUseCase.Result> = _exportEvents.asSharedFlow()
-
-    private val _lastExportResult = MutableStateFlow<ClusterAlbumExportUseCase.Result?>(null)
-    val lastExportResult: StateFlow<ClusterAlbumExportUseCase.Result?> = _lastExportResult.asStateFlow()
-
     /** One-shot toast/snackbar messages surfaced by screens. */
     sealed interface UserMessage {
         data class Renamed(val name: String) : UserMessage
@@ -209,17 +198,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearPhotoSelection() {
         _selectedPhotoIds.value = emptySet()
-    }
-
-    fun exportSelectedPhotos(clusterId: Long, albumName: String) {
-        val selected = _selectedPhotoIds.value.toList()
-        if (selected.isEmpty()) return
-        viewModelScope.launch {
-            val result = exportUseCase.exportPartial(clusterId, albumName, selected)
-            _selectedPhotoIds.value = emptySet()
-            _lastExportResult.value = result
-            _exportEvents.tryEmit(result)
-        }
     }
 
     fun startIndex(forceFullRescan: Boolean = false) {
@@ -307,14 +285,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 loadCluster(intoClusterId)
             }
             _messages.tryEmit(UserMessage.Merged(targetName))
-        }
-    }
-
-    fun exportCluster(clusterId: Long, albumName: String) {
-        viewModelScope.launch {
-            val result = exportUseCase.export(clusterId, albumName)
-            _lastExportResult.value = result
-            _exportEvents.tryEmit(result)
         }
     }
 
