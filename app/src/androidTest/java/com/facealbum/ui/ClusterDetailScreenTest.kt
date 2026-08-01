@@ -8,8 +8,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facealbum.MainViewModel
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.domain.ExportPlanner
 import com.facealbum.ui.screens.ClusterDetailScreen
 import com.facealbum.ui.theme.FaceAlbumTheme
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,7 +48,9 @@ class ClusterDetailScreenTest {
         state: MainViewModel.ClusterDetailState,
         selected: Set<Long> = emptySet(),
         candidates: List<ClusterSummary> = emptyList(),
-        onExport: (String) -> Unit = {},
+        pendingExportPlan: ExportPlanner.Plan? = null,
+        moveAvailable: Boolean = false,
+        onRequestExportPlan: (List<Long>?) -> Unit = {},
         onMerge: (Long) -> Unit = {}
     ) {
         composeTestRule.setContent {
@@ -54,15 +59,18 @@ class ClusterDetailScreenTest {
                     state = state,
                     mergeCandidates = candidates,
                     selectedPhotoIds = selected,
+                    pendingExportPlan = pendingExportPlan,
+                    moveAvailable = moveAvailable,
                     onBack = {},
                     onRename = {},
-                    onExport = onExport,
+                    onRequestExportPlan = onRequestExportPlan,
+                    onDismissExportPlan = {},
+                    onConfirmExportPlan = { _, _ -> },
                     onMerge = onMerge,
                     onToggleFavorite = {},
                     onPhotoTap = {},
                     onTogglePhotoSelection = {},
                     onClearSelection = {},
-                    onExportSelected = {},
                     onReassignPhoto = { _, _ -> }
                 )
             }
@@ -87,11 +95,31 @@ class ClusterDetailScreenTest {
         composeTestRule.onNodeWithText("Rename").assertIsDisplayed()
     }
 
+    /**
+     * Export no longer opens a name dialog directly — it asks for a plan, and
+     * the preview sheet appears only once that plan exists. Passing null means
+     * "the whole cluster" rather than a selected subset.
+     */
     @Test
-    fun exportButton_click_opensAlbumNameDialog() {
-        render(makeState("Eve"))
+    fun exportButton_click_requestsAPlanForTheWholeCluster() {
+        var requested: List<Long>? = listOf(-1L)
+        var called = false
+        render(
+            makeState("Eve"),
+            onRequestExportPlan = { ids -> called = true; requested = ids }
+        )
+
         composeTestRule.onNodeWithText("Export album").performClick()
-        composeTestRule.onNodeWithText("Export").assertIsDisplayed()
+
+        assertTrue("Export should request a plan", called)
+        assertNull("Whole-cluster export passes no explicit selection", requested)
+    }
+
+    /** With no plan yet, the confirmation sheet must not be on screen. */
+    @Test
+    fun previewSheet_hiddenUntilAPlanExists() {
+        render(makeState("Eve"), pendingExportPlan = null)
+        composeTestRule.onNodeWithText("Review before exporting").assertDoesNotExist()
     }
 
     @Test
