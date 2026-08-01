@@ -101,7 +101,6 @@
     <string name="person_detail_merge_empty">No other people to merge with yet.</string>
     <string name="person_detail_rename_hint">Person\'s name</string>
     <string name="person_detail_save">Save</string>
-    <string name="person_default_name_format">Person %d</string>
     <string name="person_detail_stats_title">About this person</string>
     <string name="person_detail_gallery_title">Photos</string>
     <string name="person_detail_open_photo">Open photo</string>

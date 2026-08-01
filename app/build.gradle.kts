@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Base64
 
 plugins {
@@ -8,15 +9,49 @@ plugins {
 }
 
 val mobileFaceNetAsset = layout.projectDirectory.file("src/main/assets/mobile_face_net.tflite")
+
+// Pin the model's SHA-256 via `-PfaceModelSha256=<hex>` or a `faceModelSha256=`
+// line in gradle.properties. The committed default is empty because this repo
+// does not ship the model (see INSTALL.md) and therefore has no real checksum
+// to pin — see `verifyFaceModelPresent` below for what happens when it's unset.
+val expectedFaceModelSha256 = providers.gradleProperty("faceModelSha256").getOrElse("").trim()
+
 tasks.register("verifyFaceModelPresent") {
     group = "verification"
-    description = "Verifies MobileFaceNet model asset exists before building installable artifacts."
+    description = "Verifies the MobileFaceNet model asset exists (and matches its pinned SHA-256, if one is configured) before building installable artifacts."
+    val modelFile = mobileFaceNetAsset.asFile
+    val expectedSha256 = expectedFaceModelSha256
     doLast {
-        if (!mobileFaceNetAsset.asFile.exists()) {
+        if (!modelFile.exists()) {
             throw GradleException(
                 "Missing required model asset: app/src/main/assets/mobile_face_net.tflite. " +
                     "See INSTALL.md for download + SHA-256 verification steps."
             )
+        }
+        if (expectedSha256.isEmpty()) {
+            logger.warn(
+                "verifyFaceModelPresent: model checksum not pinned — integrity unverified. " +
+                    "Set the 'faceModelSha256' Gradle property (gradle.properties or " +
+                    "-PfaceModelSha256=<sha256>) to enable checksum verification; see INSTALL.md."
+            )
+        } else {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val actualSha256 = modelFile.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (input.read(buffer).also { read = it } >= 0) {
+                    digest.update(buffer, 0, read)
+                }
+                digest.digest().joinToString("") { "%02x".format(it) }
+            }
+            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                throw GradleException(
+                    "Model asset checksum mismatch for app/src/main/assets/mobile_face_net.tflite.\n" +
+                        "  Expected: $expectedSha256\n" +
+                        "  Actual:   $actualSha256\n" +
+                        "The asset may be corrupted, truncated, or swapped for a different model."
+                )
+            }
         }
     }
 }

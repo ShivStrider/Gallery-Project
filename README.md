@@ -209,13 +209,42 @@ The full end-to-end loop has to be exercised on a real device — see *Release a
 
 ### Secure signing workflow (keystore outside repo)
 - Never commit keystore files or plaintext signing passwords.
-- Configure signing from environment / CI secrets only:
-  - `ANDROID_KEYSTORE_BASE64`
-  - `ANDROID_STORE_PASSWORD`
-  - `ANDROID_KEY_ALIAS`
-  - `ANDROID_KEY_PASSWORD`
-- CI decodes the keystore at runtime, signs the `release` build, then securely deletes the temp keystore.
-- `assembleRelease`/`bundleRelease` refuse to run when `ANDROID_KEYSTORE_BASE64` is unset — a release artifact is never silently debug-signed.
+- Configure signing from environment / CI secrets only — these are the exact
+  names `app/build.gradle.kts` reads (`signingConfigs.release` +
+  `decodeReleaseKeystore` + `verifyReleaseSigningConfigured`):
+  - `ANDROID_KEYSTORE_BASE64` — the release `.jks`/`.keystore` file, base64-encoded.
+  - `ANDROID_STORE_PASSWORD` — keystore password.
+  - `ANDROID_KEY_ALIAS` — signing key alias inside the keystore.
+  - `ANDROID_KEY_PASSWORD` — that key's password.
+- To produce `ANDROID_KEYSTORE_BASE64` from an existing keystore file:
+  ```bash
+  base64 -w0 release.keystore > release.keystore.b64   # Linux
+  base64 -i release.keystore -o release.keystore.b64   # macOS
+  ```
+  Store the contents of the `.b64` file as the `ANDROID_KEYSTORE_BASE64` secret
+  (CI secret store, or your shell env for a local signed build) — never commit it.
+- At build time, `decodeReleaseKeystore` decodes that secret into
+  `app/build/keystore.jks` (inside the ignored `build/` directory, recreated
+  every run) only when an actual release task executes — not on every
+  test/lint/IDE-sync. `verifyReleaseSigningConfigured` then fails the build
+  immediately if `ANDROID_KEYSTORE_BASE64` is unset, before any signing is
+  attempted.
+- CI decodes the keystore at runtime, signs the `release` build, then the
+  temp keystore is discarded along with the rest of the ephemeral build
+  workspace at the end of the job.
+- `assembleRelease`/`bundleRelease`/`packageRelease` all refuse to run when
+  `ANDROID_KEYSTORE_BASE64` is unset — a release artifact is never silently
+  debug-signed. (Other tasks — `test`, `lint`, `assembleDebug` — are unaffected
+  and don't require any of these variables.)
+- Local one-off signed build, once the four variables above are exported in
+  your shell:
+  ```bash
+  ANDROID_KEYSTORE_BASE64=$(cat release.keystore.b64) \
+  ANDROID_STORE_PASSWORD=... \
+  ANDROID_KEY_ALIAS=... \
+  ANDROID_KEY_PASSWORD=... \
+  ./gradlew bundleRelease
+  ```
 
 ### Versioning
 - `versionCode` increments for every distributable build.
@@ -253,15 +282,19 @@ For every release pipeline run, publish and retain:
 
 See [`docs/release/compliance.md`](./docs/release/compliance.md) for the full data-handling and Play Data safety writeup.
 
+See [`docs/release/known-limitations.md`](./docs/release/known-limitations.md) for a truthful, source-verified list of what this release doesn't do or does with caveats (Move export, video, clustering accuracy, etc.).
+
 ## Roadmap
 
 Next on the list (not yet implemented):
-- [ ] Manually drag-and-drop a single face out of one cluster into another.
-- [ ] Quality-based cover-face upgrade as more high-quality crops arrive.
-- [ ] Periodic background re-index via `PeriodicWorkRequest` (currently on-demand only).
-- [ ] Multi-photo selection inside cluster detail (partial export).
-- [ ] Light/dark theme toggle in Settings (currently follows the system).
 - [ ] On-device LLM-powered "describe this person" caption (experimental).
+- [ ] Move/delete export (see `docs/release/known-limitations.md` — feature-flagged off pending the destructive-operation test suite).
+
+Already shipped, despite once being roadmap items (kept here so this list stays
+honest instead of re-drifting): moving a face to another person via *Move to
+person…*, quality-based cover-face auto-upgrade, periodic background
+re-indexing (`FaceIndexWorker`, every 12h), multi-photo selection + partial
+export in cluster detail, and a Light/System/Dark theme toggle in Settings.
 
 ## Acknowledgments
 

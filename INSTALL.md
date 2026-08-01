@@ -11,7 +11,7 @@ edit-compile-run cycle.
 | Item | Where to get it | Why |
 |---|---|---|
 | Android Studio Hedgehog or newer (2023.1.1+) | https://developer.android.com/studio | Builds the project. |
-| Android SDK Platform 34 + Build-Tools 34 | Installed via Android Studio's SDK Manager | Matches `compileSdk = 34`. |
+| Android SDK Platform 35 + Build-Tools 35 | Installed via Android Studio's SDK Manager | Matches `compileSdk = 35` / `targetSdk = 35` in `app/build.gradle.kts`. |
 | JDK 17 (bundled with Android Studio) | Already there if you installed AS | Required by AGP 8.2. |
 | A phone on Android 8.0 (API 26) or newer | Your pocket | App's min SDK. |
 | **A MobileFaceNet `.tflite` weight** | See §3 | The face-embedding brain. App will *build* without it but won't *work*. |
@@ -26,10 +26,11 @@ Kit, and TFLite, all of which want real hardware.
 ```bash
 git clone https://github.com/ShivStrider/Gallery-Project.git
 cd Gallery-Project
-git checkout claude/festive-bardeen-idw9Z
+git checkout claude/face-grouping-android-app-wa04nq
 ```
 
-(The clustering work is on that branch until it lands on `main`.)
+(This work lives on that branch until it lands on `main` — check
+`git branch -a` if it has since been renamed or merged.)
 
 Open the `Gallery-Project` folder in Android Studio. Let it finish "Gradle sync"
 — it'll fetch Compose, Room, WorkManager, ML Kit, TFLite, KSP, etc. First sync
@@ -131,6 +132,32 @@ After adding the file:
 ls -l app/src/main/assets/mobile_face_net.tflite
 # Should be ~4–6 MB. If it's a few KB, your download was an HTML redirect, not the binary.
 ```
+
+### Optional: pin the model checksum
+
+`app/build.gradle.kts`'s `verifyFaceModelPresent` task (gates every release
+build) will also verify the asset's SHA-256 if you tell it what to expect.
+Nothing is pinned by default — this repo doesn't ship the model, so there's no
+real checksum to commit. Once you've sourced and verified your own copy:
+
+```bash
+sha256sum app/src/main/assets/mobile_face_net.tflite
+```
+
+Then either add it to `gradle.properties`:
+
+```properties
+faceModelSha256=<the hex digest from above>
+```
+
+or pass it per-build without touching the file:
+
+```bash
+./gradlew bundleRelease -PfaceModelSha256=<the hex digest>
+```
+
+With it unset, `verifyFaceModelPresent` still passes (existence-only check,
+today's behaviour) but logs a warning that integrity isn't verified.
 
 ---
 

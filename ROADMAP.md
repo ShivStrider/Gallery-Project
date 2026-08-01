@@ -106,9 +106,13 @@ criterion, and enabling the flag needs an explicit human decision.
 
 ## Phase 9 — Release prep 🟨
 
-- Model-asset integrity: SHA-256 gate in `verifyFaceModelPresent`. 🟨
-- Signed-build instructions with the env var names the code actually reads. 🟨
-- Known-limitations document. 🟨
+- Model-asset integrity: `verifyFaceModelPresent` now also checks SHA-256 when
+  the `faceModelSha256` property is set, and warns (rather than failing) when
+  it isn't — no checksum is pinned here, because the asset isn't shipped. ✅
+- Signed-build instructions, verified against the env var names the code
+  actually reads. ✅
+- [`docs/release/known-limitations.md`](docs/release/known-limitations.md),
+  every claim cited to a source file. ✅
 - `assembleRelease` CI job. ⏳ *blocked: the MobileFaceNet asset is not
   committed, so a release job would be permanently red*
 - Final acceptance run against the spec's Definition of Done. ⏳
