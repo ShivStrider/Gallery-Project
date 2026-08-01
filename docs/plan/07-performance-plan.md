@@ -78,24 +78,49 @@ follow-up; the benchmark's merge scenario is deliberately bounded (~300
 pre-merge clusters, not one singleton per face at 5k scale) so this doesn't
 blow up the test's own runtime.
 
-**Wall-clock numbers — NOT YET FILLED IN.** This environment has no Android SDK,
-so the benchmark has not been run locally. The suite itself is confirmed green
-in CI (`com.facealbum.perf.ClusteringBenchmarkTest: tests=3 failures=0`), which
-establishes that the operation-count invariants above hold — but Gradle captures
-test stdout into the JUnit XML rather than the console, so the timings were not
-readable from that run's log. The workflow's **Benchmark output** step now
-extracts the `[assign]` / `[mergeClose]` / `[generator]` lines from the XML and
-prints them, so the numbers below can be filled in from the next green run.
+### Measured numbers
 
-| Scale (faces) | Clusters formed | `assign` total (ms) | `assign` amortized (µs/face) | Target (amortized) |
-|---|---|---|---|---|
-| 100 | _TBD_ | _TBD_ | _TBD_ | ≤ 5 000 µs/face (5 ms) |
-| 1 000 | _TBD_ | _TBD_ | _TBD_ | ≤ 5 000 µs/face (5 ms) |
-| 5 000 | _TBD_ | _TBD_ | _TBD_ | ≤ 5 000 µs/face (5 ms) |
+From GitHub Actions run
+[30713584503](https://github.com/ShivStrider/Gallery-Project/actions/runs/30713584503)
+(commit `1de6829`), read off the workflow's **Benchmark output** step. Two
+figures per row because the debug and release unit-test variants each run the
+suite; both are given rather than averaged.
+
+These are ubuntu-latest CI-runner numbers on synthetic embeddings under
+Robolectric — useful for tracking relative change between runs, not a
+substitute for on-device measurement. The targets they are compared against
+were written for a mid-tier phone, so passing here is necessary, not
+sufficient.
+
+| Scale (faces) | Identities | Clusters formed | `assign` total (ms) | `assign` amortized (µs/face) | Target (amortized) |
+|---|---|---|---|---|---|
+| 100 | 20 | 20 | 33 / 44 | 330 / 440 | ≤ 5 000 µs/face (5 ms) |
+| 1 000 | 100 | 100 | 253 / 289 | 253 / 289 | ≤ 5 000 µs/face (5 ms) |
+| 5 000 | 200 | 200 | 1 195 / 1 255 | 239 / 251 | ≤ 5 000 µs/face (5 ms) |
+
+`assign` comes in roughly 20× inside its target, and — the point of the
+exercise — the amortized cost does **not** grow with scale: 5 000 faces against
+200 clusters costs less per face (239–251 µs) than 100 faces against 20
+clusters (330–440 µs), where JIT warm-up dominates. Clusters formed equals
+identities exactly at every scale, so the run is genuinely exercising
+assignment rather than collapsing into one blob or degenerating into
+singletons.
+
+Generator separation for the same run: `minIntraSim=0.798`,
+`maxInterSim=0.0698` against an assign threshold of 0.6 — a wide margin either
+side, which is what makes the numbers above meaningful.
 
 | Scenario | Pre-merge clusters | Post-merge clusters | `mergeClose` total (ms) | Target |
 |---|---|---|---|---|
-| ~300 forced pre-merge clusters | _TBD_ | _TBD_ | _TBD_ | ≤ 1 000 ms at 200 clusters |
+| 300 forced pre-merge clusters (150 merges) | 300 | 150 | 1 801 / 2 065 | ≤ 1 000 ms at 200 clusters |
 
-Do not fabricate these numbers — paste them from an actual CI run's log output
-once this test lands and goes green.
+**`mergeClose` is the one number that does not look comfortable.** 1.8–2.1 s to
+perform 150 merges is above the ≤ 1 s target, though not a like-for-like
+comparison: the target is stated at 200 clusters and this scenario starts from
+300. It is consistent with the comparison-restart caveat noted above — the
+pairwise scan restarts and re-sorts after every merge, so cost grows with
+*merges × clusters* rather than with clusters alone. The test still passes
+because its wall-clock fence is deliberately loose (10 s), and the DB-read
+invariant it actually asserts does hold. Treat this row as the measurement that
+justifies fixing the restart, and re-measure at 200 clusters afterwards for a
+clean comparison against the target.

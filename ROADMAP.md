@@ -48,11 +48,13 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 - `mergeClose()` no longer re-reads centroids from Room per merge. 🟨 *its
   pairwise **comparison** loop does still restart from the top after each
   merge (`break@outer` + `while (changed)`), so the DB cost is fixed but the
-  comparison cost is not — found while writing the benchmark below*
+  comparison cost is not. Measured at 1.8–2.1 s for 150 merges from 300
+  clusters, against a ≤ 1 s @ 200-cluster target — see the performance plan*
 - `PhotoDao.findByIdsChunked()` respects the SQLite 999-variable limit. ✅
 - Clustering benchmarks at 100 / 1k / 5k synthetic embeddings, asserting on
   operation counts rather than wall-clock so they catch a complexity
-  regression without flaking on a noisy runner. ✅
+  regression without flaking on a noisy runner. ✅ *measured: `assign` is flat
+  at 239–440 µs/face across all three scales, ~20× inside its target*
 - "Review needed / Unassigned" group for low-confidence faces, instead of
   forcing them into singleton clusters. ⏳
 
