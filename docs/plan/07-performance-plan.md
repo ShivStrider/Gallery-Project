@@ -79,9 +79,13 @@ pre-merge clusters, not one singleton per face at 5k scale) so this doesn't
 blow up the test's own runtime.
 
 **Wall-clock numbers — NOT YET FILLED IN.** This environment has no Android SDK,
-so the benchmark has not been run locally. The numbers below are placeholders
-to be pasted in from the first green CI run of this test class (see the
-`println` output in the job log for `[assign]` and `[mergeClose]` lines).
+so the benchmark has not been run locally. The suite itself is confirmed green
+in CI (`com.facealbum.perf.ClusteringBenchmarkTest: tests=3 failures=0`), which
+establishes that the operation-count invariants above hold — but Gradle captures
+test stdout into the JUnit XML rather than the console, so the timings were not
+readable from that run's log. The workflow's **Benchmark output** step now
+extracts the `[assign]` / `[mergeClose]` / `[generator]` lines from the XML and
+prints them, so the numbers below can be filled in from the next green run.
 
 | Scale (faces) | Clusters formed | `assign` total (ms) | `assign` amortized (µs/face) | Target (amortized) |
 |---|---|---|---|---|
