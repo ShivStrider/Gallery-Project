@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Legacy Auto Backup rules for API <= 30 (android:fullBackupContent).
+  Same rationale as data_extraction_rules.xml: face embeddings and person
+  names must never be backed up off-device. Every domain is excluded.
+-->
+<full-backup-content>
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="file" />
+    <exclude domain="root" />
+    <exclude domain="external" />
+</full-backup-content>

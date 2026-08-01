@@ -5,6 +5,10 @@
     <!-- Photo library access (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!-- Android 14+ partial access ("Select photos"). Granted instead of
+         READ_MEDIA_IMAGES when the user limits the app to a selection. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
     <!-- Photo library access (Android 12 and below) -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -17,9 +21,20 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- allowBackup is intentionally false: the Room database holds face
+         embeddings (biometric-derived vectors) and user-assigned person
+         names. Android Auto Backup would otherwise copy that database to
+         the user's Google Drive/cloud account, contradicting this app's
+         core "stays on this device" claim. dataExtractionRules and
+         fullBackupContent below are defence in depth — both rule sets
+         exclude the database and DataStore preferences outright, so even
+         if allowBackup is ever flipped back to true by mistake, the
+         sensitive data still cannot leave the device via backup/transfer. -->
     <application
         android:name=".FaceAlbumApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

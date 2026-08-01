@@ -2,6 +2,11 @@
 
 package com.facealbum.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -34,16 +39,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.facealbum.MainViewModel
 import com.facealbum.R
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.ui.theme.Spacing
+import com.facealbum.util.PhotoAccess
 
 /**
  * Hero "People" grid. Google Photos–style tiles with a large title, a live
@@ -57,9 +65,39 @@ fun PeopleScreen(
     snackbarHostState: SnackbarHostState,
     onClusterClick: (Long) -> Unit,
     onScanNow: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    limitedAccess: Boolean = false
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val context = LocalContext.current
+
+    // Ask for the notification permission in context — right when the user
+    // starts a scan — so the foreground-service progress notification isn't
+    // silently dropped on Android 13+. Denial never blocks the scan.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> onScanNow() }
+    val startScan: () -> Unit = {
+        val needsNotificationPermission =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+        if (needsNotificationPermission) {
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onScanNow()
+        }
+    }
+
+    // Re-launching the photo permission request under a partial grant shows
+    // the system's "keep selection / select more" sheet — that's the official
+    // reselect flow on Android 14+.
+    val reselectLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        if (PhotoAccess.hasAnyAccess(context)) onScanNow()
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -86,7 +124,7 @@ fun PeopleScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onScanNow,
+                onClick = startScan,
                 expanded = !indexProgress.running,
                 icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
                 text = { Text(stringResource(R.string.people_scan_now)) },
@@ -97,6 +135,12 @@ fun PeopleScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(top = innerPadding.calculateTopPadding()).fillMaxSize()) {
+            if (limitedAccess) {
+                LimitedAccessBanner(
+                    onManage = { reselectLauncher.launch(PhotoAccess.requiredPermissions()) }
+                )
+            }
+
             AnimatedVisibility(
                 visible = indexProgress.running || indexProgress.errorMessage != null,
                 enter = fadeIn(),
@@ -115,7 +159,7 @@ fun PeopleScreen(
                 clusters.isEmpty() ->
                     EmptyPeopleState(
                         isScanning = indexProgress.running,
-                        onScanNow = onScanNow,
+                        onScanNow = startScan,
                         modifier = Modifier.weight(1f)
                     )
                 else -> {
@@ -141,6 +185,29 @@ fun PeopleScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LimitedAccessBanner(onManage: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.people_limited_access_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onManage) {
+                Text(stringResource(R.string.people_limited_access_manage))
             }
         }
     }

@@ -1,10 +1,7 @@
 package com.facealbum.ui.screens
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,32 +27,30 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.facealbum.R
 import com.facealbum.ui.theme.Spacing
-
-private val photoPermission: String =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_IMAGES
-    } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    }
+import com.facealbum.util.PhotoAccess
 
 @Composable
 fun WelcomeScreen(onPermissionGranted: () -> Unit) {
     val context = LocalContext.current
     var showPermissionDenied by remember { mutableStateOf(false) }
 
+    // Multi-permission request so Android 14's "Select photos" partial grant
+    // (READ_MEDIA_VISUAL_USER_SELECTED without READ_MEDIA_IMAGES) counts as
+    // success — the scanner then sees the user's selection.
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) onPermissionGranted() else showPermissionDenied = true
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        if (PhotoAccess.hasAnyAccess(context)) {
+            onPermissionGranted()
+        } else {
+            showPermissionDenied = true
+        }
     }
 
     LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, photoPermission) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        if (PhotoAccess.hasAnyAccess(context)) {
             onPermissionGranted()
         }
     }
@@ -145,7 +140,7 @@ fun WelcomeScreen(onPermissionGranted: () -> Unit) {
                         textAlign = TextAlign.Center
                     )
                     Button(
-                        onClick = { permissionLauncher.launch(photoPermission) },
+                        onClick = { permissionLauncher.launch(PhotoAccess.requiredPermissions()) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(28.dp)
                     ) {

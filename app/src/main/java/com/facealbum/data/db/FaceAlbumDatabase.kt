@@ -13,9 +13,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FaceEntity::class,
         ClusterEntity::class,
         AlbumEntity::class,
-        ScanSessionEntity::class
+        ScanSessionEntity::class,
+        ExportOperationEntity::class,
+        ExportItemEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class FaceAlbumDatabase : RoomDatabase() {
@@ -24,6 +26,7 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
     abstract fun clusterDao(): ClusterDao
     abstract fun albumDao(): AlbumDao
     abstract fun scanSessionDao(): ScanSessionDao
+    abstract fun exportDao(): ExportDao
 
     companion object {
         private const val DB_NAME = "face_album.db"
@@ -37,7 +40,7 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
                     FaceAlbumDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
@@ -188,6 +191,77 @@ abstract class FaceAlbumDatabase : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE clusters")
                 db.execSQL("ALTER TABLE clusters_v3 RENAME TO clusters")
+            }
+        }
+
+        /**
+         * v3 → v4: add the export transaction log (`export_operations` +
+         * `export_items`). Purely additive — no existing table is touched, so
+         * there is nothing to rebuild and nothing to lose.
+         *
+         * This log is what makes a *move* export safe: every per-file state
+         * transition is committed before the next file is touched, so an
+         * interrupted export can resume, and a verified copy is a
+         * precondition for ever deleting a source.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS export_operations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        clusterId INTEGER,
+                        albumName TEXT NOT NULL,
+                        destRelativePath TEXT NOT NULL,
+                        mode TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        totalCount INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        FOREIGN KEY(clusterId) REFERENCES clusters(id)
+                            ON UPDATE NO ACTION ON DELETE SET NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_export_operations_clusterId " +
+                        "ON export_operations(clusterId)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_export_operations_state " +
+                        "ON export_operations(state)"
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS export_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        operationId INTEGER NOT NULL,
+                        photoId INTEGER,
+                        sourceMediaStoreId INTEGER NOT NULL,
+                        sourceUri TEXT NOT NULL,
+                        sourceDisplayName TEXT NOT NULL,
+                        sourceRelativePath TEXT,
+                        sourceSizeBytes INTEGER NOT NULL,
+                        sourceSha256 TEXT,
+                        destDisplayName TEXT NOT NULL,
+                        destUri TEXT,
+                        state TEXT NOT NULL,
+                        errorCode TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        FOREIGN KEY(operationId) REFERENCES export_operations(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_export_items_operationId " +
+                        "ON export_items(operationId)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_export_items_operationId_state " +
+                        "ON export_items(operationId, state)"
+                )
             }
         }
     }

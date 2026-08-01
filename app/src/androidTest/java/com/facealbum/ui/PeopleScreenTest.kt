@@ -5,7 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.test.ext.junit4.runners.AndroidJUnit4
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facealbum.MainViewModel
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.ui.screens.PeopleScreen
@@ -125,6 +125,45 @@ class PeopleScreenTest {
         }
         composeTestRule.onNodeWithText("Bob").performClick()
         assertTrue("Expected cluster 42 click, got $clickedId", clickedId == 42L)
+    }
+
+    @Test
+    fun limitedAccessBanner_showsWhenPartialGrant() {
+        composeTestRule.setContent {
+            FaceAlbumTheme {
+                PeopleScreen(
+                    clusters = emptyList(),
+                    indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
+                    onClusterClick = {},
+                    onScanNow = {},
+                    onOpenSettings = {},
+                    limitedAccess = true
+                )
+            }
+        }
+        composeTestRule
+            .onNodeWithText("FaceAlbum can only see the photos you've selected.")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Manage").assertIsDisplayed()
+    }
+
+    @Test
+    fun limitedAccessBanner_hiddenWithFullAccess() {
+        composeTestRule.setContent {
+            FaceAlbumTheme {
+                PeopleScreen(
+                    clusters = emptyList(),
+                    indexProgress = noProgress(),
+                    snackbarHostState = snackbarHost,
+                    onClusterClick = {},
+                    onScanNow = {},
+                    onOpenSettings = {},
+                    limitedAccess = false
+                )
+            }
+        }
+        composeTestRule.onNodeWithText("Manage").assertDoesNotExist()
     }
 
     @Test

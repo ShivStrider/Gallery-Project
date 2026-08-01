@@ -19,13 +19,7 @@ class FaceAlbumApp : Application() {
             Timber.plant(Timber.DebugTree())
         }
 
-        // Firebase/Crashlytics may not be available in tests or when google-services
-        // is misconfigured. Swallow init failures so the app still launches.
-        try {
-            CrashReporter.initialize(isInternalBuild = BuildConfig.DEBUG)
-        } catch (t: Throwable) {
-            Timber.w(t, "CrashReporter init failed; continuing without crash reporting")
-        }
+        CrashReporter.initialize(isInternalBuild = BuildConfig.DEBUG)
 
         // WorkManager auto-init can fail under unit-test classloaders. Don't let
         // background scheduling block app startup.

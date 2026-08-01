@@ -7,9 +7,4 @@ plugins {
     // task writes to one shared directory and they race, surfacing as
     // `IllegalStateException: Empty schema file` from a truncated read.
     id("androidx.room") version "2.6.1" apply false
-    // Firebase / Google Services plugins are applied in :app; declaring the
-    // versions here (not below) satisfies Gradle's plugin resolution without
-    // pulling the plugin classpath into every module.
-    id("com.google.gms.google-services") version "4.4.2" apply false
-    id("com.google.firebase.crashlytics") version "3.0.2" apply false
 }

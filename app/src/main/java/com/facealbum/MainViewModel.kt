@@ -9,9 +9,9 @@ import com.facealbum.config.FaceRecognitionConfig
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.data.db.findByIdsChunked
 import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.data.prefs.UserPreferences
-import com.facealbum.domain.ClusterAlbumExportUseCase
 import com.facealbum.domain.FaceClusterer
 import com.facealbum.work.FaceIndexWorker
 import com.facealbum.work.ReclusterWorker
@@ -41,8 +41,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
     private val prefs: UserPreferences = UserPreferences.get(application)
-    private val clusterer = FaceClusterer(db.clusterDao(), db.faceDao())
-    private val exportUseCase = ClusterAlbumExportUseCase(application)
+
+    // FaceClusterer caches centroids per instance, so it must be constructed
+    // per operation — a long-lived instance would go stale against scans and
+    // reclusters running in parallel workers.
+    private fun newClusterer() = FaceClusterer(db.clusterDao(), db.faceDao())
 
     val minClusterSize: StateFlow<Int> = prefs.minClusterSize
         .stateIn(
@@ -173,15 +176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val isFavorite: Boolean
     )
 
-    private val _exportEvents = MutableSharedFlow<ClusterAlbumExportUseCase.Result>(
-        replay = 0,
-        extraBufferCapacity = 1
-    )
-    val exportEvents: SharedFlow<ClusterAlbumExportUseCase.Result> = _exportEvents.asSharedFlow()
-
-    private val _lastExportResult = MutableStateFlow<ClusterAlbumExportUseCase.Result?>(null)
-    val lastExportResult: StateFlow<ClusterAlbumExportUseCase.Result?> = _lastExportResult.asStateFlow()
-
     /** One-shot toast/snackbar messages surfaced by screens. */
     sealed interface UserMessage {
         data class Renamed(val name: String) : UserMessage
@@ -204,17 +198,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearPhotoSelection() {
         _selectedPhotoIds.value = emptySet()
-    }
-
-    fun exportSelectedPhotos(clusterId: Long, albumName: String) {
-        val selected = _selectedPhotoIds.value.toList()
-        if (selected.isEmpty()) return
-        viewModelScope.launch {
-            val result = exportUseCase.exportPartial(clusterId, albumName, selected)
-            _selectedPhotoIds.value = emptySet()
-            _lastExportResult.value = result
-            _exportEvents.tryEmit(result)
-        }
     }
 
     fun startIndex(forceFullRescan: Boolean = false) {
@@ -266,7 +249,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val photos = if (photoIds.isEmpty()) {
                 emptyList()
             } else {
-                db.photoDao().findByIds(photoIds).sortedByDescending { it.dateTaken }
+                db.photoDao().findByIdsChunked(photoIds).sortedByDescending { it.dateTaken }
             }
             val firstAppearance = photos.minOfOrNull { it.dateTaken }
             val latestAppearance = photos.maxOfOrNull { it.dateTaken }
@@ -295,7 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun mergeClusters(fromClusterId: Long, intoClusterId: Long) {
         viewModelScope.launch {
             val targetName = db.clusterDao().byId(intoClusterId)?.displayName
-            clusterer.mergeUserRequested(fromClusterId, intoClusterId)
+            newClusterer().mergeUserRequested(fromClusterId, intoClusterId)
             if (_selectedCluster.value?.clusterId == fromClusterId) {
                 _selectedCluster.value = null
             } else if (_selectedCluster.value?.clusterId == intoClusterId) {
@@ -305,19 +288,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportCluster(clusterId: Long, albumName: String) {
-        viewModelScope.launch {
-            val result = exportUseCase.export(clusterId, albumName)
-            _lastExportResult.value = result
-            _exportEvents.tryEmit(result)
-        }
-    }
-
     fun clearIndex() {
         viewModelScope.launch {
             db.faceDao().clear()
             db.clusterDao().clear()
             db.photoDao().clear()
+            // The export log records source paths and file names, so "delete
+            // face data" has to take it too (items cascade with operations).
+            db.exportDao().clearOperations()
         }
     }
 
@@ -349,6 +327,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             for (face in faces) {
                 db.faceDao().assignToCluster(face.id, toClusterId)
             }
+            val clusterer = newClusterer()
             clusterer.recomputeFromFaces(fromClusterId)
             clusterer.recomputeFromFaces(toClusterId)
             loadCluster(fromClusterId)

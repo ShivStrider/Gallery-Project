@@ -1,6 +1,15 @@
 # FaceAlbum — Project Audit
 
-Living document. Updated as work lands.
+> **Historical record.** This document captures the UI-polish pass that
+> preceded the current export/privacy work. Its percentages and "Blockers"
+> list describe the repository *as of that pass* and several are now out of
+> date — Firebase has since been removed, `POST_NOTIFICATIONS` is requested,
+> and backup is disabled.
+>
+> For current status see [`ROADMAP.md`](ROADMAP.md); for the authoritative
+> design contracts see [`docs/plan/`](docs/plan/), starting with
+> [`00-repository-audit.md`](docs/plan/00-repository-audit.md), which
+> supersedes this file as the audit of record.
 
 ## Completion Snapshot
 
@@ -99,18 +108,22 @@ Deferred items:
 
 ## Play Store Blockers
 
-- Real `google-services.json` needs to replace the CI stub before publish.
+- ~~Real `google-services.json` needs to replace the CI stub before publish.~~ Obsolete: Firebase was removed entirely; no service config is needed.
 - Adaptive launcher icons need real XML (the tree has a
   `README_ICONS.txt` placeholder).
 - Privacy policy URL surface (string is defined, target URL not decided).
 - `mobile_face_net.tflite` model asset must be present for release (already
   gated by `verifyFaceModelPresent`).
-- `POST_NOTIFICATIONS` is declared but not requested at runtime — Android 13+
-  will silently drop the foreground-service notification unless the permission
-  is granted. Small follow-up: request during Welcome flow (skill:
-  `system/edge-to-edge`, `play/play-policy-insights`).
-- `targetSdk` is 34; per official skills recommendation should bump to 35 in a
-  fast-follow pass. Not a Play blocker for the current billing window.
+- ~~`POST_NOTIFICATIONS` is declared but not requested at runtime.~~ Resolved:
+  `PeopleScreen` requests it at runtime when the first scan starts; denial
+  degrades gracefully (scan still runs, just without a visible notification).
+- ~~`targetSdk` is 34; should bump to 35.~~ Resolved: `compileSdk`/`targetSdk`
+  are both 35 in `app/build.gradle.kts`.
+- ~~`allowBackup="true"` with no backup rules.~~ Resolved (Phase 8):
+  `android:allowBackup="false"`, plus `data_extraction_rules.xml` /
+  `backup_rules.xml` excluding every backup domain as defence in depth.
+  `docs/release/compliance.md` rewritten to match the post-Firebase,
+  post-hardening state. See `docs/plan/08-privacy-security.md`.
 
 ## Recommended Future Enhancements
 

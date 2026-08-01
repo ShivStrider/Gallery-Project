@@ -108,6 +108,55 @@ class FaceClustererTest {
         assertThat(db.faceDao().facesInCluster(cA)).hasSize(2)
     }
 
+    @Test
+    fun `write-through cache keeps Room authoritative across instances`() = runTest {
+        // Build clusters through one instance…
+        val ids = mutableListOf<Long>()
+        for (seed in 1..5) {
+            repeat(4) { i ->
+                val v = unitVec(seed = seed, jitter = 0.002f * i)
+                val faceId = insertFace(v)
+                ids += clusterer.assign(faceId, v, quality = 0.1f)
+            }
+        }
+        assertThat(db.clusterDao().all()).hasSize(5)
+
+        // …then a brand-new instance (fresh cache, loaded from Room) must see
+        // exactly the same state and route new faces to the same clusters.
+        val fresh = FaceClusterer(
+            clusterDao = db.clusterDao(),
+            faceDao = db.faceDao(),
+            assignThreshold = 0.6f,
+            mergeThreshold = 0.75f,
+            now = { 0L }
+        )
+        for (seed in 1..5) {
+            val v = unitVec(seed = seed, jitter = 0.001f)
+            val faceId = insertFace(v)
+            val assigned = fresh.assign(faceId, v, quality = 0.1f)
+            assertThat(assigned).isEqualTo(ids[(seed - 1) * 4])
+        }
+        assertThat(db.clusterDao().all()).hasSize(5)
+        assertThat(db.clusterDao().all().sumOf { it.faceCount }).isEqualTo(25)
+    }
+
+    @Test
+    fun `rename survives clusterer stat updates`() = runTest {
+        val v = unitVec(seed = 1)
+        val faceId = insertFace(v)
+        val clusterId = clusterer.assign(faceId, v, quality = 0.1f)
+
+        // Rename through the DAO (as the UI does), then keep assigning through
+        // the same cached clusterer instance: the name must survive.
+        db.clusterDao().rename(clusterId, "Alice", now = 1L)
+        val v2 = unitVec(seed = 1, jitter = 0.01f)
+        val faceId2 = insertFace(v2)
+        clusterer.assign(faceId2, v2, quality = 0.2f)
+
+        assertThat(db.clusterDao().byId(clusterId)!!.displayName).isEqualTo("Alice")
+        assertThat(db.clusterDao().byId(clusterId)!!.faceCount).isEqualTo(2)
+    }
+
     private suspend fun insertFace(embedding: FloatArray): Long {
         val mediaStoreId = mediaStoreCounter++
         val photoId = db.photoDao().insert(

@@ -60,10 +60,25 @@ class FaceIndexUseCase(
     private val context: Context,
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(context),
     private val photoRepository: PhotoRepository = PhotoRepository(context),
-    private val detector: FaceDetectorWrapper = FaceDetectorWrapper(context),
-    private val embedder: FaceEmbedder = FaceEmbedder(context),
+    detectorFactory: () -> FaceDetectorWrapper = { FaceDetectorWrapper(context) },
+    embedderFactory: () -> FaceEmbedder = { FaceEmbedder(context) },
     private val prefs: UserPreferences = UserPreferences.get(context)
 ) {
+
+    /**
+     * ML Kit's detector and the TFLite interpreter both claim native resources
+     * on construction, so neither is built until a scan actually reaches for
+     * it. Constructing this use case — which a worker may do only to discover
+     * the model is missing — costs nothing.
+     *
+     * Held as [Lazy] rather than `by lazy` so [close] can skip anything that
+     * was never touched instead of allocating it just to release it.
+     */
+    private val detectorLazy: Lazy<FaceDetectorWrapper> = lazy(detectorFactory)
+    private val embedderLazy: Lazy<FaceEmbedder> = lazy(embedderFactory)
+
+    private val detector: FaceDetectorWrapper get() = detectorLazy.value
+    private val embedder: FaceEmbedder get() = embedderLazy.value
 
     /**
      * Constructed at the start of every [run] from the user's current
@@ -100,6 +115,12 @@ class FaceIndexUseCase(
         val assignT = prefs.assignThreshold.first()
         val mergeT = prefs.mergeThreshold.first()
         clusterer = FaceClusterer(db.clusterDao(), db.faceDao(), assignT, mergeT)
+
+        // Photos deleted (or hidden by a narrowed Android 14 selection) outside
+        // the app must leave the index, or their faces haunt the groups forever.
+        // Changed photos need no special pass: DATE_MODIFIED advances, so the
+        // incremental query below re-indexes them.
+        reconcileDeletedPhotos(clusterer)
 
         val lastIndexed = if (forceFullRescan) 0L else db.photoDao().lastIndexedDateModified() ?: 0L
         Timber.i("Index pass start, lastIndexedDateModified=$lastIndexed, forceFullRescan=$forceFullRescan")
@@ -157,7 +178,7 @@ class FaceIndexUseCase(
                 .collect { result ->
                     currentCoroutineContext().ensureActive()
                     if (result.error != null) {
-                        Timber.e(result.error, "Failed to decode/detect photo ${result.photo.uri}")
+                        Timber.e(result.error, "Failed to decode/detect photo id=${result.photo.id}")
                         CrashReporter.recordNonFatal(
                             throwable = result.error,
                             source = "detect_photo",
@@ -171,7 +192,7 @@ class FaceIndexUseCase(
                         } catch (ce: CancellationException) {
                             throw ce
                         } catch (t: Throwable) {
-                            Timber.e(t, "Failed to embed/persist photo ${result.photo.uri}")
+                            Timber.e(t, "Failed to embed/persist photo id=${result.photo.id}")
                             CrashReporter.recordNonFatal(
                                 throwable = t,
                                 source = "embed_photo",
@@ -213,7 +234,7 @@ class FaceIndexUseCase(
         }
 
         Timber.i("Index pass done. Cleaning up empty clusters + merge pass.")
-        db.clusterDao().deleteEmpty()
+        clusterer.deleteEmpty()
         clusterer.mergeClose()
 
         db.scanSessionDao().finish(
@@ -236,29 +257,74 @@ class FaceIndexUseCase(
     }
 
     /**
+     * Removes index rows whose MediaStore records no longer exist, then
+     * repairs every cluster that lost faces. Runs inside one transaction so a
+     * mid-pass kill leaves the previous consistent state.
+     */
+    internal suspend fun reconcileDeletedPhotos(clusterer: FaceClusterer) {
+        val known = db.photoDao().idAndMediaStoreIdRows()
+        if (known.isEmpty()) return
+        val visible = photoRepository.queryAllMediaStoreIds()
+        val vanished = known.filter { it.mediaStoreId !in visible }
+        if (vanished.isEmpty()) return
+
+        Timber.i("Reconcile: ${vanished.size} indexed photo(s) no longer in MediaStore")
+        db.withTransaction {
+            val affectedClusters = mutableSetOf<Long>()
+            for (row in vanished) {
+                affectedClusters += db.faceDao().facesForPhoto(row.id).mapNotNull { it.clusterId }
+            }
+            vanished.map { it.id }.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+                db.photoDao().deleteByIds(chunk) // faces cascade via FK
+            }
+            for (cid in affectedClusters) {
+                clusterer.recomputeFromFaces(cid)
+            }
+            db.clusterDao().deleteEmpty()
+        }
+    }
+
+    /**
      * Stage B: take an already-decoded bitmap + detected faces, embed each
-     * face, persist face rows, and assign them to clusters — all in a single
+     * face, then persist face rows and assign them to clusters in a single
      * Room transaction so a cancellation can't leave partial state.
+     *
+     * TFLite inference deliberately happens BEFORE the transaction opens: a
+     * many-face photo would otherwise hold SQLite's write lock across N model
+     * invocations, starving the UI's reactive queries. Stage B is strictly
+     * serial (single-thread dispatcher), so the existence pre-check cannot
+     * race with the write that follows it.
      */
     private suspend fun indexFromDetection(result: DetectResult): Int {
         val photo = result.photo
         val bitmap = result.bitmap
         val faces = result.faces
 
+        val preExisting = db.photoDao().findByMediaStoreId(photo.id)
+        if (preExisting != null && preExisting.dateModified >= photo.dateModified) {
+            // Up-to-date already; nothing to do. Defends against duplicate
+            // photos sharing the same DATE_MODIFIED that slip through the
+            // incremental query.
+            return 0
+        }
+
+        // Model inference, outside any transaction.
+        val embedded: List<EmbeddedFace> = if (bitmap == null) {
+            emptyList()
+        } else {
+            faces.mapNotNull { face ->
+                computeEmbedding(bitmap, face.boundingBox)?.let { EmbeddedFace(face, it) }
+            }
+        }
+        val photoArea = bitmap?.let { (it.width * it.height).coerceAtLeast(1).toFloat() }
+
         return db.withTransaction {
             val existing = db.photoDao().findByMediaStoreId(photo.id)
-            if (existing != null && existing.dateModified >= photo.dateModified) {
-                // Up-to-date already; nothing to do. Defends against duplicate
-                // photos sharing the same DATE_MODIFIED that slip through the
-                // incremental query.
-                return@withTransaction 0
-            }
-
             val now = System.currentTimeMillis()
 
             if (bitmap == null) {
                 // Persist a faceCount=0 row anyway so `lastIndexedDateModified` advances.
-                Timber.w("Could not load bitmap for photo ${photo.uri}; recording empty entry")
+                Timber.w("Could not load bitmap for photo id=${photo.id}; recording empty entry")
                 if (existing == null) {
                     db.photoDao().insert(
                         PhotoEntity(
@@ -319,12 +385,10 @@ class FaceIndexUseCase(
                 existing.id
             }
 
-            if (faces.isEmpty()) return@withTransaction 0
+            if (embedded.isEmpty() || photoArea == null) return@withTransaction 0
 
-            val photoArea = (bitmap.width * bitmap.height).coerceAtLeast(1).toFloat()
             var added = 0
-            for (face in faces) {
-                val embedding = computeEmbedding(bitmap, face.boundingBox) ?: continue
+            for ((face, embedding) in embedded) {
                 val quality = ((face.boundingBox.width().toFloat() * face.boundingBox.height()) / photoArea)
                     .coerceIn(0f, 1f)
                 val faceRowId = db.faceDao().insert(
@@ -352,8 +416,8 @@ class FaceIndexUseCase(
     }
 
     fun close() {
-        detector.close()
-        embedder.close()
+        if (detectorLazy.isInitialized()) detectorLazy.value.close()
+        if (embedderLazy.isInitialized()) embedderLazy.value.close()
     }
 
     private data class DetectResult(
@@ -361,6 +425,12 @@ class FaceIndexUseCase(
         val bitmap: Bitmap?,
         val faces: List<Face>,
         val error: Throwable?
+    )
+
+    /** A detected face paired with its embedding, computed pre-transaction. */
+    private data class EmbeddedFace(
+        val face: Face,
+        val embedding: FloatArray
     )
 
     class ModelNotReadyException(message: String) : RuntimeException(message)
@@ -376,5 +446,8 @@ class FaceIndexUseCase(
          * 1024-px max dimension stays well under typical heap budgets.
          */
         private const val BUFFER_BETWEEN_STAGES = 2
+
+        /** Stay under SQLite's 999-bind-variable limit for IN() clauses. */
+        private const val SQL_VARIABLE_CHUNK = 900
     }
 }

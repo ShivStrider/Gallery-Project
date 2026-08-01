@@ -3,6 +3,7 @@ package com.facealbum.data
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.database.MatrixCursor
 import android.net.Uri
 import io.mockk.every
 import io.mockk.mockk
@@ -18,6 +19,7 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 
 // Uri.parse() at field init needs Android's real implementation, which is
 // only present in the JVM test JAR when the test runs under Robolectric.
@@ -116,6 +118,106 @@ class PhotoRepositoryTest {
             insertedNames[0] != insertedNames[1]
         )
     }
+
+    // --- Verified-copy primitives (the gate that authorises source deletion) ---
+
+    @Test
+    fun `checked copy reports the checksum of the bytes written`() = runTest {
+        val payload = byteArrayOf(9, 8, 7, 6, 5)
+        setupSuccessFlow("image/jpeg", ByteArrayInputStream(payload), CapturingOutputStream())
+
+        val result = PhotoRepository(context)
+            .copyToAlbumChecked(sourceUri, "Person", "dest.jpg")
+
+        assertTrue(result is PhotoRepository.CheckedCopyResult.Success)
+        val success = result as PhotoRepository.CheckedCopyResult.Success
+        assertEquals(payload.size.toLong(), success.bytesCopied)
+        assertEquals(sha256Hex(payload), success.sha256)
+        assertEquals(false, success.dedupHit)
+    }
+
+    @Test
+    fun `verification passes when size and checksum match`() = runTest {
+        val payload = byteArrayOf(1, 2, 3, 4)
+        setupVerifyFlow(payload, reportedSize = payload.size.toLong())
+
+        val result = PhotoRepository(context)
+            .verifyExportedCopy(destUri, payload.size.toLong(), sha256Hex(payload))
+
+        assertEquals(PhotoRepository.VerifyResult.Verified, result)
+    }
+
+    /** A truncated copy must never be treated as a successful export. */
+    @Test
+    fun `verification fails on size mismatch`() = runTest {
+        val payload = byteArrayOf(1, 2, 3)
+        setupVerifyFlow(payload, reportedSize = payload.size.toLong())
+
+        val result = PhotoRepository(context)
+            .verifyExportedCopy(destUri, expectedSizeBytes = 999L, expectedSha256 = null)
+
+        assertEquals(
+            PhotoRepository.VerifyResult.Failed(PhotoRepository.VerifyError.SIZE_MISMATCH),
+            result
+        )
+    }
+
+    /** Same length, different bytes — only the checksum catches this. */
+    @Test
+    fun `verification fails on checksum mismatch`() = runTest {
+        val written = byteArrayOf(1, 2, 3, 4)
+        val expected = byteArrayOf(4, 3, 2, 1)
+        setupVerifyFlow(written, reportedSize = written.size.toLong())
+
+        val result = PhotoRepository(context)
+            .verifyExportedCopy(destUri, written.size.toLong(), sha256Hex(expected))
+
+        assertEquals(
+            PhotoRepository.VerifyResult.Failed(PhotoRepository.VerifyError.CHECKSUM_MISMATCH),
+            result
+        )
+    }
+
+    @Test
+    fun `verification fails when the destination row is gone`() = runTest {
+        every { context.contentResolver } returns resolver
+        every { resolver.query(destUri, any(), null, null, null) } returns null
+
+        val result = PhotoRepository(context).verifyExportedCopy(destUri, 4L, null)
+
+        assertEquals(
+            PhotoRepository.VerifyResult.Failed(PhotoRepository.VerifyError.DEST_MISSING),
+            result
+        )
+    }
+
+    @Test
+    fun `verification fails when the destination cannot be opened`() = runTest {
+        every { context.contentResolver } returns resolver
+        every { resolver.query(destUri, any(), null, null, null) } returns sizeCursor(4L)
+        every { resolver.openInputStream(destUri) } returns null
+
+        val result = PhotoRepository(context).verifyExportedCopy(destUri, 4L, null)
+
+        assertEquals(
+            PhotoRepository.VerifyResult.Failed(PhotoRepository.VerifyError.DEST_UNREADABLE),
+            result
+        )
+    }
+
+    private fun setupVerifyFlow(destBytes: ByteArray, reportedSize: Long) {
+        every { context.contentResolver } returns resolver
+        every { resolver.query(destUri, any(), null, null, null) } returns sizeCursor(reportedSize)
+        every { resolver.openInputStream(destUri) } returns ByteArrayInputStream(destBytes)
+    }
+
+    private fun sizeCursor(size: Long) = MatrixCursor(arrayOf("_size")).apply {
+        addRow(arrayOf<Any>(size))
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
 
     private fun setupSuccessFlow(mimeType: String, input: InputStream, output: OutputStream, updateRows: Int = 1) {
         every { context.contentResolver } returns resolver

@@ -28,13 +28,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.facealbum.R
+import com.facealbum.domain.ExportReport
 import com.facealbum.ui.theme.Spacing
 
+/**
+ * @param report per-state tallies read back from the export transaction log.
+ *   When present the screen reports exactly what happened — including
+ *   originals that were kept and files that failed — instead of only a
+ *   success count. Null keeps the plain copy-mode summary.
+ */
 @Composable
 fun ExportCompleteScreen(
     exportedCount: Int,
     albumName: String,
-    onStartOver: () -> Unit
+    onStartOver: () -> Unit,
+    report: ExportReport? = null,
+    onUndo: (() -> Unit)? = null
 ) {
     val safeAlbumName = albumName.ifBlank { stringResource(R.string.album_name_default) }
     val context = LocalContext.current
@@ -130,6 +139,11 @@ fun ExportCompleteScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = Spacing.md)
                 )
+
+                if (report != null) {
+                    Spacer(Modifier.height(Spacing.md))
+                    ExportOutcomeDetails(report)
+                }
             }
 
             Column(
@@ -172,7 +186,81 @@ fun ExportCompleteScreen(
                     Spacer(Modifier.width(Spacing.sm))
                     Text(stringResource(R.string.export_complete_open_gallery))
                 }
+
+                if (report?.canUndo == true && onUndo != null) {
+                    TextButton(
+                        onClick = onUndo,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (report.sourcesDeletedCount > 0) {
+                                stringResource(R.string.export_undo_move)
+                            } else {
+                                stringResource(R.string.export_undo_copy)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/**
+ * Per-state breakdown. Kept photos and failures are shown as prominently as
+ * successes — a move that left originals behind is not a completed move, and
+ * the user needs to know that without opening a file manager to check.
+ */
+@Composable
+private fun ExportOutcomeDetails(report: ExportReport) {
+    Column(
+        modifier = Modifier.padding(horizontal = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (report.sourcesDeletedCount > 0) {
+            OutcomeLine(
+                text = stringResource(
+                    R.string.export_outcome_originals_deleted,
+                    report.sourcesDeletedCount
+                ),
+                emphasis = false
+            )
+        }
+        if (report.sourcesKeptCount > 0) {
+            OutcomeLine(
+                text = stringResource(
+                    R.string.export_outcome_originals_kept,
+                    report.sourcesKeptCount
+                ),
+                emphasis = true
+            )
+        }
+        if (report.failedCount > 0) {
+            OutcomeLine(
+                text = stringResource(R.string.export_outcome_failed, report.failedCount),
+                emphasis = true
+            )
+        }
+        if (report.restoredCount > 0) {
+            OutcomeLine(
+                text = stringResource(R.string.export_outcome_restored, report.restoredCount),
+                emphasis = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun OutcomeLine(text: String, emphasis: Boolean) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (emphasis) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        textAlign = TextAlign.Center
+    )
 }

@@ -156,6 +156,104 @@ class FaceAlbumDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrate3To4_matchesExportedSchema() {
+        helper.createDatabase(TEST_DB, 3).close()
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            FaceAlbumDatabase.MIGRATION_3_4
+        ).close()
+    }
+
+    @Test
+    fun migrate1To4_matchesExportedSchema() {
+        helper.createDatabase(TEST_DB, 1).close()
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            FaceAlbumDatabase.MIGRATION_1_2,
+            FaceAlbumDatabase.MIGRATION_2_3,
+            FaceAlbumDatabase.MIGRATION_3_4
+        ).close()
+    }
+
+    /**
+     * v3 -> v4 is additive: it only introduces the export log. Nothing the
+     * user already had may be disturbed, and the new tables must accept rows.
+     */
+    @Test
+    fun migrate3To4_preservesExistingDataAndAcceptsExportRows() {
+        helper.createDatabase(TEST_DB, 3).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO clusters
+                    (id, displayName, coverFaceId, faceCount, centroid, createdAt, updatedAt)
+                VALUES (1, 'Katherine', NULL, 11, X'00', 100, 200)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO albums
+                    (id, clusterId, albumName, exportedRelativePath, exportedAt, photoCount)
+                VALUES (1, 1, 'Katherine', 'Pictures/FaceAlbums/Katherine', 300, 11)
+                """.trimIndent()
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            FaceAlbumDatabase.MIGRATION_3_4
+        ).use { db ->
+            db.query("SELECT displayName, faceCount FROM clusters WHERE id = 1").use {
+                assertTrue("cluster row did not survive", it.moveToFirst())
+                assertEquals("Katherine", it.getString(0))
+                assertEquals(11, it.getInt(1))
+            }
+            db.query("SELECT albumName FROM albums WHERE id = 1").use {
+                assertTrue("album row did not survive", it.moveToFirst())
+                assertEquals("Katherine", it.getString(0))
+            }
+
+            db.execSQL(
+                """
+                INSERT INTO export_operations
+                    (id, clusterId, albumName, destRelativePath, mode, state,
+                     totalCount, createdAt, updatedAt)
+                VALUES (1, 1, 'Katherine', 'Pictures/FaceAlbums/Katherine/',
+                        'MOVE', 'PENDING', 2, 500, 500)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO export_items
+                    (id, operationId, photoId, sourceMediaStoreId, sourceUri,
+                     sourceDisplayName, sourceRelativePath, sourceSizeBytes,
+                     sourceSha256, destDisplayName, destUri, state, errorCode, updatedAt)
+                VALUES (1, 1, 7, 42, 'content://media/external/images/media/42',
+                        'IMG_0042.jpg', 'DCIM/Camera/', 1024, NULL,
+                        'IMG_0042_42.jpg', NULL, 'PENDING', NULL, 500)
+                """.trimIndent()
+            )
+            db.query("SELECT state, mode FROM export_operations WHERE id = 1").use {
+                assertTrue("export_operations row missing", it.moveToFirst())
+                assertEquals("PENDING", it.getString(0))
+                assertEquals("MOVE", it.getString(1))
+            }
+            db.query("SELECT sourceDisplayName, state FROM export_items WHERE id = 1").use {
+                assertTrue("export_items row missing", it.moveToFirst())
+                assertEquals("IMG_0042.jpg", it.getString(0))
+                assertEquals("PENDING", it.getString(1))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

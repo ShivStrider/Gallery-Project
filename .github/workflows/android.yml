@@ -25,32 +25,50 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Stub google-services.json for CI
+      # Logs must never carry media identifiers (photo URIs, album/person
+      # names, file names) — only stable numeric IDs and enum names. This
+      # guard greps every Timber call for the usual leak patterns.
+      - name: Check logs for media identifiers
         run: |
-          cat > app/google-services.json <<'JSON'
-          {
-            "project_info": {
-              "project_number": "000000000000",
-              "project_id": "facealbum-ci",
-              "storage_bucket": "facealbum-ci.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-                  "android_client_info": { "package_name": "com.facealbum" }
-                },
-                "oauth_client": [],
-                "api_key": [ { "current_key": "AIzaSyA-CI-STUB-KEY-NOT-FOR-PROD-0000000" } ],
-                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          JSON
+          if grep -rnE 'Timber\.[a-z]+\(.*(\.uri|albumName|displayName|\.name\b)' app/src/main/java/; then
+            echo "::error::Timber call logs a media identifier (URI / album / display name). Log IDs instead."
+            exit 1
+          fi
 
       - name: Run unit tests
         run: ./gradlew test --stacktrace
+
+      # Always print per-suite counts. A green conclusion only proves nothing
+      # *ran and failed* — a suite that silently stops running (a filtered
+      # class, or one that fails to initialise) is invisible otherwise, and
+      # the safety suites are exactly where that must not go unnoticed.
+      - name: Test summary
+        if: always()
+        run: |
+          # Suites run under both the debug and release unit-test variants, so
+          # the same class appears twice. Deduplicate by suite line before
+          # counting — a total that silently doubles is worse than none.
+          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null \
+            | xargs -r sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1 \2 \3 \4 \5/p' \
+            | sort -u > /tmp/suite-counts.txt
+          echo "=== Per-suite test counts (deduplicated across variants) ==="
+          awk '{print $1": tests="$2" skipped="$3" failures="$4" errors="$5}' /tmp/suite-counts.txt
+          echo "=== Totals ==="
+          awk '{t+=$2; s+=$3; f+=$4; e+=$5} END {print "suites="NR" tests="t" skipped="s" failures="f" errors="e}' \
+            /tmp/suite-counts.txt
+
+      - name: Benchmark output
+        if: always()
+        run: |
+          # The clustering benchmarks print their measured timings to stdout,
+          # which Gradle captures into the JUnit XML rather than the console.
+          # Surface just those lines so the numbers can be read off a green run
+          # without downloading the test-results artifact — docs/plan/
+          # 07-performance-plan.md is filled in from here.
+          find app/build/test-results -name 'TEST-com.facealbum.perf.*.xml' 2>/dev/null \
+            | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
+            | sort -u \
+            || echo "No benchmark output found."
 
       - name: Dump failing test reports
         if: failure()
@@ -65,6 +83,53 @@ jobs:
 
       - name: Run lint
         run: ./gradlew lint --stacktrace
+
+      # Assembling the debug APK and compiling the androidTest source set are
+      # the only CI-side proof that the app and its instrumentation tests
+      # actually build — `test` + `lint` alone never compile either.
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Compile instrumentation tests
+        run: ./gradlew assembleDebugAndroidTest --stacktrace
+
+      # Room exports schema JSON during the build. They must be committed
+      # (MigrationTestHelper reads them from assets), so surface them for
+      # retrieval when a new DB version is added.
+      - name: Upload Room schemas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas
+          path: app/schemas/
+          if-no-files-found: ignore
+
+      # The build regenerates app/schemas/. If that differs from what's
+      # committed, the migration tests are validating against a stale schema —
+      # which is exactly how a hand-written migration silently drifts from its
+      # entities. Print the diff and fail rather than let it pass unnoticed.
+      - name: Check Room schemas are committed and current
+        if: always()
+        run: |
+          if ! git diff --quiet --exit-code -- app/schemas/; then
+            echo "::error::Generated Room schemas differ from the committed ones. Commit the regenerated app/schemas/ files."
+            git diff -- app/schemas/
+            exit 1
+          fi
+          if [ -n "$(git ls-files --others --exclude-standard app/schemas/)" ]; then
+            echo "::error::A generated Room schema is not committed:"
+            git ls-files --others --exclude-standard app/schemas/
+            exit 1
+          fi
+          echo "Room schemas are committed and match the build output."
+
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: ignore
 
       - name: Upload lint report
         if: always()

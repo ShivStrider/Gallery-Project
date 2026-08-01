@@ -43,11 +43,20 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): PhotoEntity?
 
+    /** Prefer [findByIdsChunked]: SQLite caps bind variables at 999. */
     @Query("SELECT * FROM photos WHERE id IN (:ids)")
     suspend fun findByIds(ids: List<Long>): List<PhotoEntity>
 
     @Query("SELECT MAX(dateModified) FROM photos")
     suspend fun lastIndexedDateModified(): Long?
+
+    /** Lightweight projection for MediaStore reconciliation. */
+    @Query("SELECT id, mediaStoreId FROM photos")
+    suspend fun idAndMediaStoreIdRows(): List<PhotoIdRow>
+
+    /** Callers must chunk [ids] below SQLite's 999-variable limit. */
+    @Query("DELETE FROM photos WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 
     @Query("SELECT COUNT(*) FROM photos")
     suspend fun count(): Int
@@ -55,3 +64,16 @@ interface PhotoDao {
     @Query("DELETE FROM photos")
     suspend fun clear()
 }
+
+/** Projection row for [PhotoDao.idAndMediaStoreIdRows]. */
+data class PhotoIdRow(
+    val id: Long,
+    val mediaStoreId: Long
+)
+
+/**
+ * Batched lookup that stays under SQLite's 999-bind-variable limit — a person
+ * appearing in more than 999 photos is entirely realistic for family members.
+ */
+suspend fun PhotoDao.findByIdsChunked(ids: List<Long>): List<PhotoEntity> =
+    ids.chunked(900).flatMap { findByIds(it) }

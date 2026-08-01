@@ -7,27 +7,22 @@
 - Validate runtime permission behavior on **API 33+** (new media permission model and related prompts).
 - Confirm first-run, deny, deny permanently, and grant-after-deny paths.
 
-### 2) Seed Selection Edge Cases
-- Verify behavior when selected seed image contains **no detectable face**.
-- Verify behavior when selected seed image contains **multiple faces**.
-- Confirm user messaging, fallback handling, and no-crash outcomes.
-
-### 3) Scan Cancel/Resume Behavior
+### 2) Scan Cancel/Resume Behavior
 - Start a library scan and cancel mid-process.
 - Verify app state consistency and progress persistence/rollback expectations.
 - Resume scan and confirm it completes correctly without duplicate or missing results.
 
-### 4) Export and Gallery Visibility
+### 3) Export and Gallery Visibility
 - Validate export **success** flow (file output, user confirmation, metadata if applicable).
 - Validate export **failure** flow (storage unavailable, permission denied, I/O error handling).
 - Confirm exported media visibility in major gallery apps after export/indexing.
 
-### 5) Large-Library Performance Sanity
+### 4) Large-Library Performance Sanity
 - Run sanity checks against a large media library.
 - Validate scan responsiveness, memory stability, and acceptable completion behavior.
 - Confirm no ANRs or severe UI stalls during core flows.
 
-### 6) Lifecycle Behavior (Rotation/Background/Foreground)
+### 5) Lifecycle Behavior (Rotation/Background/Foreground)
 - Verify in-progress operations and UI state across **device rotation**.
 - Verify behavior when app moves to **background** and returns to **foreground**.
 - Confirm no data loss, corrupted state, or crashes during lifecycle transitions.

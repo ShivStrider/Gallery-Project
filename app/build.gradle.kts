@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Base64
 
 plugins {
@@ -5,20 +6,52 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("androidx.room")
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
 }
 
 val mobileFaceNetAsset = layout.projectDirectory.file("src/main/assets/mobile_face_net.tflite")
+
+// Pin the model's SHA-256 via `-PfaceModelSha256=<hex>` or a `faceModelSha256=`
+// line in gradle.properties. The committed default is empty because this repo
+// does not ship the model (see INSTALL.md) and therefore has no real checksum
+// to pin — see `verifyFaceModelPresent` below for what happens when it's unset.
+val expectedFaceModelSha256 = providers.gradleProperty("faceModelSha256").getOrElse("").trim()
+
 tasks.register("verifyFaceModelPresent") {
     group = "verification"
-    description = "Verifies MobileFaceNet model asset exists before building installable artifacts."
+    description = "Verifies the MobileFaceNet model asset exists (and matches its pinned SHA-256, if one is configured) before building installable artifacts."
+    val modelFile = mobileFaceNetAsset.asFile
+    val expectedSha256 = expectedFaceModelSha256
     doLast {
-        if (!mobileFaceNetAsset.asFile.exists()) {
+        if (!modelFile.exists()) {
             throw GradleException(
                 "Missing required model asset: app/src/main/assets/mobile_face_net.tflite. " +
                     "See INSTALL.md for download + SHA-256 verification steps."
             )
+        }
+        if (expectedSha256.isEmpty()) {
+            logger.warn(
+                "verifyFaceModelPresent: model checksum not pinned — integrity unverified. " +
+                    "Set the 'faceModelSha256' Gradle property (gradle.properties or " +
+                    "-PfaceModelSha256=<sha256>) to enable checksum verification; see INSTALL.md."
+            )
+        } else {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val actualSha256 = modelFile.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (input.read(buffer).also { read = it } >= 0) {
+                    digest.update(buffer, 0, read)
+                }
+                digest.digest().joinToString("") { "%02x".format(it) }
+            }
+            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                throw GradleException(
+                    "Model asset checksum mismatch for app/src/main/assets/mobile_face_net.tflite.\n" +
+                        "  Expected: $expectedSha256\n" +
+                        "  Actual:   $actualSha256\n" +
+                        "The asset may be corrupted, truncated, or swapped for a different model."
+                )
+            }
         }
     }
 }
@@ -156,12 +189,35 @@ tasks.register("decodeReleaseKeystore") {
     }
 }
 
+// A release artifact produced without the real keystore is silently
+// debug-signed (see the signingConfig fallback above, which keeps
+// configuration-time resolution working for test/lint). That artifact looks
+// like a release build and could be distributed by mistake — refuse to
+// produce one instead.
+tasks.register("verifyReleaseSigningConfigured") {
+    group = "verification"
+    description = "Fails release artifact builds when the release keystore is not configured."
+    val keystoreConfigured = System.getenv("ANDROID_KEYSTORE_BASE64") != null
+    doLast {
+        if (!keystoreConfigured) {
+            throw GradleException(
+                "Refusing to build a release artifact without release signing. " +
+                    "Set ANDROID_KEYSTORE_BASE64 / ANDROID_STORE_PASSWORD / " +
+                    "ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD (see README.md, " +
+                    "'Secure signing'). Without them the output would be " +
+                    "debug-signed but named like a release."
+            )
+        }
+    }
+}
+
 // Only gate the actual installable/distributable outputs on the model asset —
 // not every task whose name happens to contain "Release" (test, lint, etc.).
 // The same gate also wires the lazy keystore decode in front of release builds.
 tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease") }
     .configureEach {
         dependsOn("verifyFaceModelPresent")
+        dependsOn("verifyReleaseSigningConfigured")
         dependsOn("decodeReleaseKeystore")
     }
 
@@ -210,12 +266,6 @@ dependencies {
 
     // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
-
-    // Firebase BOM
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
-    // KTX side-modules were folded into the main artifacts in Firebase BOM
-    // 33+; -ktx variants no longer publish. Use the plain module directly.
-    implementation("com.google.firebase:firebase-crashlytics")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

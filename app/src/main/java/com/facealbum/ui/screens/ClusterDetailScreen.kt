@@ -48,6 +48,7 @@ import com.facealbum.MainViewModel
 import com.facealbum.R
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.domain.ExportPlanner
 import com.facealbum.ui.theme.Spacing
 import com.facealbum.util.formatFriendlyDate
 
@@ -64,19 +65,21 @@ fun ClusterDetailScreen(
     state: MainViewModel.ClusterDetailState,
     mergeCandidates: List<ClusterSummary>,
     selectedPhotoIds: Set<Long>,
+    pendingExportPlan: ExportPlanner.Plan?,
+    moveAvailable: Boolean,
     onBack: () -> Unit,
     onRename: (String) -> Unit,
-    onExport: (albumName: String) -> Unit,
+    onRequestExportPlan: (photoRowIds: List<Long>?) -> Unit,
+    onDismissExportPlan: () -> Unit,
+    onConfirmExportPlan: (albumName: String, mode: ExportPlanner.Mode) -> Unit,
     onMerge: (intoClusterId: Long) -> Unit,
     onToggleFavorite: () -> Unit,
     onPhotoTap: (photoIndex: Int) -> Unit,
     onTogglePhotoSelection: (photoId: Long) -> Unit,
     onClearSelection: () -> Unit,
-    onExportSelected: (albumName: String) -> Unit,
     onReassignPhoto: (photoId: Long, toClusterId: Long) -> Unit
 ) {
     var renameDialogOpen by remember { mutableStateOf(false) }
-    var exportDialogOpen by remember { mutableStateOf(false) }
     var mergeDialogOpen by remember { mutableStateOf(false) }
     var reassignPhotoId by remember { mutableStateOf<Long?>(null) }
     var confirmMergeTargetId by remember { mutableStateOf<Long?>(null) }
@@ -146,10 +149,7 @@ fun ClusterDetailScreen(
                         count = selectedPhotoIds.size,
                         showMove = selectedPhotoIds.size == 1,
                         onMove = { reassignPhotoId = selectedPhotoIds.first() },
-                        onExport = {
-                            val defaultName = state.displayName.orEmpty()
-                            onExportSelected(defaultName)
-                        },
+                        onExport = { onRequestExportPlan(selectedPhotoIds.toList()) },
                         onCancel = onClearSelection
                     )
                 } else {
@@ -185,7 +185,10 @@ fun ClusterDetailScreen(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     ActionRow(
                         selectedCount = selectedPhotoIds.size,
-                        onExport = { exportDialogOpen = true },
+                        onExport = {
+                            val ids = if (isSelecting) selectedPhotoIds.toList() else null
+                            onRequestExportPlan(ids)
+                        },
                         onMerge = { mergeDialogOpen = true },
                         onRename = { renameDialogOpen = true }
                     )
@@ -222,17 +225,13 @@ fun ClusterDetailScreen(
         )
     }
 
-    if (exportDialogOpen) {
-        val defaultName = state.displayName.orEmpty().ifBlank {
-            stringResource(R.string.person_default_name_format, state.clusterId)
-        }
-        AlbumNameDialog(
-            initial = defaultName,
-            onDismiss = { exportDialogOpen = false },
-            onConfirm = { name ->
-                onExport(name)
-                exportDialogOpen = false
-            }
+    if (pendingExportPlan != null && pendingExportPlan.clusterId == state.clusterId) {
+        ExportPreviewSheet(
+            plan = pendingExportPlan,
+            moveAvailable = moveAvailable,
+            initialAlbumName = pendingExportPlan.albumName,
+            onDismiss = onDismissExportPlan,
+            onConfirm = onConfirmExportPlan
         )
     }
 
@@ -630,33 +629,6 @@ private fun RenameDialog(
             TextButton(onClick = { onConfirm(text) }) {
                 Text(stringResource(R.string.person_detail_save))
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        }
-    )
-}
-
-@Composable
-private fun AlbumNameDialog(
-    initial: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    var text by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.person_detail_export)) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                label = { Text(stringResource(R.string.album_name_hint)) }
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(text) }) { Text(stringResource(R.string.export)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
