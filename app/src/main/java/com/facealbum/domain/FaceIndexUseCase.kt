@@ -60,10 +60,25 @@ class FaceIndexUseCase(
     private val context: Context,
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(context),
     private val photoRepository: PhotoRepository = PhotoRepository(context),
-    private val detector: FaceDetectorWrapper = FaceDetectorWrapper(context),
-    private val embedder: FaceEmbedder = FaceEmbedder(context),
+    detectorFactory: () -> FaceDetectorWrapper = { FaceDetectorWrapper(context) },
+    embedderFactory: () -> FaceEmbedder = { FaceEmbedder(context) },
     private val prefs: UserPreferences = UserPreferences.get(context)
 ) {
+
+    /**
+     * ML Kit's detector and the TFLite interpreter both claim native resources
+     * on construction, so neither is built until a scan actually reaches for
+     * it. Constructing this use case — which a worker may do only to discover
+     * the model is missing — costs nothing.
+     *
+     * Held as [Lazy] rather than `by lazy` so [close] can skip anything that
+     * was never touched instead of allocating it just to release it.
+     */
+    private val detectorLazy: Lazy<FaceDetectorWrapper> = lazy(detectorFactory)
+    private val embedderLazy: Lazy<FaceEmbedder> = lazy(embedderFactory)
+
+    private val detector: FaceDetectorWrapper get() = detectorLazy.value
+    private val embedder: FaceEmbedder get() = embedderLazy.value
 
     /**
      * Constructed at the start of every [run] from the user's current
@@ -401,8 +416,8 @@ class FaceIndexUseCase(
     }
 
     fun close() {
-        detector.close()
-        embedder.close()
+        if (detectorLazy.isInitialized()) detectorLazy.value.close()
+        if (embedderLazy.isInitialized()) embedderLazy.value.close()
     }
 
     private data class DetectResult(

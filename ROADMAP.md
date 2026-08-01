@@ -33,15 +33,14 @@ performance plan, privacy/security, decision log (D1–D16), risk register
   their clusters recomputed. ✅
 - Dead discovery/export code and stale string aliases removed. ✅
 
-## Phase 3 — Pipeline correctness & efficiency 🟨
+## Phase 3 — Pipeline correctness & efficiency ✅
 
 - TFLite inference moved outside the Room write transaction. ✅
 - Photo URIs, filenames and album names stripped from all logging; CI grep
   guard keeps them out. ✅
 - Unit tests for `FacePreprocessor` and `BitmapLoader` sampling math. ✅
-- Lazy-init `FaceDetectorWrapper` / `FaceEmbedder` so they are not allocated on
-  ModelNotReady paths. ⏳ *both are still eager default constructor args in
-  `FaceIndexUseCase`*
+- `FaceDetectorWrapper` / `FaceEmbedder` built lazily, so nothing native is
+  allocated on ModelNotReady paths and `close()` skips what was never used. ✅
 
 ## Phase 4 — Grouping at scale & uncertainty 🟨
 

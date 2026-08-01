@@ -54,8 +54,8 @@ class FaceIndexReconcileTest {
             context = ApplicationProvider.getApplicationContext(),
             db = db,
             photoRepository = photoRepository,
-            detector = mockk<FaceDetectorWrapper>(relaxed = true),
-            embedder = mockk<FaceEmbedder>(relaxed = true),
+            detectorFactory = { mockk<FaceDetectorWrapper>(relaxed = true) },
+            embedderFactory = { mockk<FaceEmbedder>(relaxed = true) },
             prefs = mockk<UserPreferences>(relaxed = true)
         )
     }
