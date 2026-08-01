@@ -1,6 +1,15 @@
 # FaceAlbum — Project Audit
 
-Living document. Updated as work lands.
+> **Historical record.** This document captures the UI-polish pass that
+> preceded the current export/privacy work. Its percentages and "Blockers"
+> list describe the repository *as of that pass* and several are now out of
+> date — Firebase has since been removed, `POST_NOTIFICATIONS` is requested,
+> and backup is disabled.
+>
+> For current status see [`ROADMAP.md`](ROADMAP.md); for the authoritative
+> design contracts see [`docs/plan/`](docs/plan/), starting with
+> [`00-repository-audit.md`](docs/plan/00-repository-audit.md), which
+> supersedes this file as the audit of record.
 
 ## Completion Snapshot
 
