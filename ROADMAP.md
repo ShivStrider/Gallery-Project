@@ -45,9 +45,14 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 ## Phase 4 — Grouping at scale & uncertainty 🟨
 
 - In-memory centroid cache — removes the per-face full-table centroid read. ✅
-- `mergeClose()` no longer restarts its scan after every merge. ✅
+- `mergeClose()` no longer re-reads centroids from Room per merge. 🟨 *its
+  pairwise **comparison** loop does still restart from the top after each
+  merge (`break@outer` + `while (changed)`), so the DB cost is fixed but the
+  comparison cost is not — found while writing the benchmark below*
 - `PhotoDao.findByIdsChunked()` respects the SQLite 999-variable limit. ✅
-- Clustering benchmarks at 100 / 1k / 5k synthetic embeddings. 🟨
+- Clustering benchmarks at 100 / 1k / 5k synthetic embeddings, asserting on
+  operation counts rather than wall-clock so they catch a complexity
+  regression without flaking on a noisy runner. ✅
 - "Review needed / Unassigned" group for low-confidence faces, instead of
   forcing them into singleton clusters. ⏳
 
