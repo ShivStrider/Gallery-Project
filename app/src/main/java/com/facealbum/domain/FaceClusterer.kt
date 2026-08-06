@@ -166,6 +166,18 @@ class FaceClusterer(
      * Merge cluster pairs whose centroids are at or above [mergeThreshold].
      * Repeats until a full pass produces no merges. The pairwise scan runs
      * over cached centroids — pure float math, no per-iteration Room reads.
+     *
+     * Each pass sorts survivors by [Cached.faceCount] descending once, then
+     * walks outer-to-inner absorbing every later, still-alive cluster within
+     * threshold — absorbed clusters are marked dead in a per-pass set rather
+     * than restarting the scan. This is safe because a survivor's face count only
+     * grows within a pass (via absorption), so for any not-yet-visited `j`,
+     * the invariant `a.faceCount >= b.faceCount` established by the initial
+     * sort holds for the rest of the pass — "larger absorbs smaller" is
+     * preserved without re-sorting after each merge. A centroid shift from
+     * absorption can newly bring a survivor within threshold of a cluster
+     * already passed over earlier in this pass; that's picked up by the next
+     * full pass, which is why passes repeat until one yields zero merges.
      */
     suspend fun mergeClose() {
         // Reload rather than trust the cache: this is the end-of-scan pass and
@@ -177,16 +189,19 @@ class FaceClusterer(
         while (changed) {
             changed = false
             val all = clusters.values.sortedByDescending { it.faceCount }
-            outer@ for (i in all.indices) {
+            val dead = HashSet<Long>()
+            for (i in all.indices) {
                 val a = all[i]
+                if (a.id in dead) continue
                 for (j in i + 1 until all.size) {
                     val b = all[j]
+                    if (b.id in dead) continue
                     val sim = SimilarityMatcher.cosineSimilarity(a.centroid, b.centroid)
                     if (sim >= mergeThreshold) {
                         Timber.d("Merging cluster ${b.id} into ${a.id} (sim=$sim)")
                         mergeInto(survivor = a, absorbed = b)
+                        dead += b.id
                         changed = true
-                        break@outer
                     }
                 }
             }
