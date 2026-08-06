@@ -14,7 +14,7 @@ edit-compile-run cycle.
 | Android SDK Platform 35 + Build-Tools 35 | Installed via Android Studio's SDK Manager | Matches `compileSdk = 35` / `targetSdk = 35` in `app/build.gradle.kts`. |
 | JDK 17 (bundled with Android Studio) | Already there if you installed AS | Required by AGP 8.2. |
 | A phone on Android 8.0 (API 26) or newer | Your pocket | App's min SDK. |
-| **A MobileFaceNet `.tflite` weight** | See §3 | The face-embedding brain. App will *build* without it but won't *work*. |
+| ~~A MobileFaceNet `.tflite` weight~~ | **Now bundled** — see §3 | The face-embedding brain. Committed to the repo; nothing to source. |
 
 Emulators technically work but are slow; the index loop touches MediaStore, ML
 Kit, and TFLite, all of which want real hardware.
@@ -47,34 +47,46 @@ straight to the model step below.
 
 ---
 
-## 3. Drop in the TFLite model — **the critical step**
+## 3. The TFLite model — **now bundled, nothing to do**
 
-The app expects this file:
+The model ships with the repo:
 
 ```
-app/src/main/assets/mobile_face_net.tflite
+app/src/main/assets/mobile_face_net.tflite     # 5,117,184 bytes
 ```
 
-with this contract (see `FaceRecognitionConfig.kt`):
+Its SHA-256 is pinned in `gradle.properties`, so `verifyFaceModelPresent`
+fails the build if it is ever corrupted or swapped. Full provenance, license,
+and the exact conversion command are in
+[`app/src/main/assets/README_MODEL.txt`](app/src/main/assets/README_MODEL.txt).
 
-- **Input**: `1 × 112 × 112 × 3` float32, normalized to `[-1, 1]`
-- **Output**: `1 × 512` float32
+Contract (see `FaceRecognitionConfig.kt`):
 
-If your model uses a different input size or normalization, the app builds and
-indexing runs without crashing — clusters just come out as noise. So the
-contract matters.
+- **Input**: `1 × 112 × 112 × 3` float32, RGB, normalized to `[-1, 1]`
+- **Output**: `1 × 128` float32, already L2-normalized by the graph
 
-### Candidate models
+> **Corrections.** Earlier revisions of this file said the output was `1 × 512`
+> and that the conversion input tensor was named `input`. Both were wrong: the
+> sirius-ai graph emits **128** values from a placeholder named **`img_inputs`**,
+> and `from_frozen_graph` is a TF1 entry point that lives at
+> `tf.compat.v1.lite.TFLiteConverter` on TensorFlow 2. `EMBEDDING_SIZE` has been
+> corrected to 128 to match the model that actually ships.
 
-I haven't shipped a model with the repo because of license + binary-history
-concerns. Pick one of the routes below.
+Swapping in a different model means updating `FaceRecognitionConfig.kt` to its
+input size and output width, re-pinning `faceModelSha256`, and re-scanning the
+library — all embeddings in one database must share a width.
+
+### Candidate models (only if you want to replace the bundled one)
+
+The routes below are kept for anyone substituting a different model.
 
 **Option 3a — sirius-ai MobileFaceNet (Apache-2.0, the canonical match)**
 
 Repo: https://github.com/sirius-ai/MobileFaceNet_TF
 
 This is the **license-clean** source whose architecture matches our contract
-exactly (112×112 in, 512-D out, normalized to [-1, 1]). Catch: the repo ships
+(112×112 in, normalized to [-1, 1]) — though it emits 128-D, not 512-D as
+this file used to claim. This is the model now bundled. Catch: the repo ships
 a TensorFlow frozen graph (`.pb`), not a `.tflite`. You'll need to convert it
 once:
 
@@ -92,9 +104,9 @@ import tensorflow as tf
 # ships. (If you are on TF 1.15, drop the `.compat.v1`.)
 converter = tf.compat.v1.lite.TFLiteConverter.from_frozen_graph(
     graph_def_file="MobileFaceNet_9925_9680.pb",
-    input_arrays=["input"],
+    input_arrays=["img_inputs"],
     output_arrays=["embeddings"],
-    input_shapes={"input": [1, 112, 112, 3]},
+    input_shapes={"img_inputs": [1, 112, 112, 3]},
 )
 open("mobile_face_net.tflite", "wb").write(converter.convert())
 PY
@@ -138,31 +150,31 @@ ls -l app/src/main/assets/mobile_face_net.tflite
 # Should be ~4–6 MB. If it's a few KB, your download was an HTML redirect, not the binary.
 ```
 
-### Optional: pin the model checksum
+### The model checksum is already pinned
 
-`app/build.gradle.kts`'s `verifyFaceModelPresent` task (gates every release
-build) will also verify the asset's SHA-256 if you tell it what to expect.
-Nothing is pinned by default — this repo doesn't ship the model, so there's no
-real checksum to commit. Once you've sourced and verified your own copy:
+`app/build.gradle.kts`'s `verifyFaceModelPresent` task (which gates every
+release build) verifies the asset's SHA-256 against the `faceModelSha256`
+property, already set in `gradle.properties` to the digest of the committed
+model:
+
+```
+72b5c2921d4fd4be3743dae54451ef2f0c13924ae9c048926152176383d657bf
+```
+
+If you replace the model, recompute and re-pin it:
 
 ```bash
 sha256sum app/src/main/assets/mobile_face_net.tflite
 ```
 
-Then either add it to `gradle.properties`:
-
-```properties
-faceModelSha256=<the hex digest from above>
-```
-
-or pass it per-build without touching the file:
+You can also override per build without editing the file:
 
 ```bash
 ./gradlew bundleRelease -PfaceModelSha256=<the hex digest>
 ```
 
-With it unset, `verifyFaceModelPresent` still passes (existence-only check,
-today's behaviour) but logs a warning that integrity isn't verified.
+Emptying the property downgrades the task to an existence-only check that
+passes with an integrity-not-verified warning.
 
 ---
 
@@ -250,7 +262,7 @@ Then in the app, *Settings → Re-scan entire library*.
 Model contract mismatch. Confirm:
 - file is at `app/src/main/assets/mobile_face_net.tflite`
 - input is 112×112×3, normalized to [-1, 1]
-- output is exactly 512 floats
+- output width matches `FaceRecognitionConfig.EMBEDDING_SIZE` (128 for the bundled model)
 Or update `FaceRecognitionConfig.kt` + `FacePreprocessor.kt` to match what your
 model actually wants.
 

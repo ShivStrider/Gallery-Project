@@ -8,7 +8,18 @@ object FaceRecognitionConfig {
     const val MODEL_INPUT_SIZE = 112
 
     /** Output embedding vector size from MobileFaceNet */
-    const val EMBEDDING_SIZE = 512
+    /**
+     * Output dimensionality of the bundled MobileFaceNet model.
+     *
+     * 128, not 512: the sirius-ai MobileFaceNet graph this repo ships emits a
+     * 1 x 128 `embeddings` tensor. Earlier docs here claimed 512, which was
+     * simply wrong — TFLite would have thrown on the output-shape mismatch.
+     * Swapping in a model with a different output width means changing this
+     * constant to match it; nothing persists a fixed width (embeddings are
+     * stored as length-agnostic BLOBs), but all embeddings in one database
+     * must share a width, so a change requires re-scanning the library.
+     */
+    const val EMBEDDING_SIZE = 128
 
     /** Default similarity threshold for face matching (0.0 to 1.0) */
     const val DEFAULT_SIMILARITY_THRESHOLD = 0.6f

@@ -11,7 +11,7 @@
 |---|---|
 | Model | MobileFaceNet (TFLite), asset `app/src/main/assets/mobile_face_net.tflite` |
 | Input | 1×112×112×3 float32, RGB, normalized to [-1, 1] |
-| Output | 1×512 float32, L2-normalized in-app |
+| Output | 1×128 float32, L2-normalized by the graph (and again in-app, idempotent) |
 | Runtime | TensorFlow Lite 2.14, CPU, 4 threads (GPU/NNAPI deliberately off — correctness first) |
 | Quantization | float32 for v1 (quantized variant is a Phase 7+ benchmark decision, not a default) |
 | Distance metric | Cosine similarity (equivalent to dot product on normalized vectors) |

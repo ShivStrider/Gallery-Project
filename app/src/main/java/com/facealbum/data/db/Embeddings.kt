@@ -4,7 +4,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Helpers to round-trip a 512-dim FloatArray as the ByteArray we persist in Room.
+ * Helpers to round-trip an embedding FloatArray as the ByteArray we persist in Room.
  * Little-endian, 4 bytes per float.
  */
 object Embeddings {

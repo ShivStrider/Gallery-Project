@@ -45,11 +45,11 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 ## Phase 4 — Grouping at scale & uncertainty 🟨
 
 - In-memory centroid cache — removes the per-face full-table centroid read. ✅
-- `mergeClose()` no longer re-reads centroids from Room per merge. 🟨 *its
-  pairwise **comparison** loop does still restart from the top after each
-  merge (`break@outer` + `while (changed)`), so the DB cost is fixed but the
-  comparison cost is not. Measured at 1.8–2.1 s for 150 merges from 300
-  clusters, against a ≤ 1 s @ 200-cluster target — see the performance plan*
+- `mergeClose()` no longer re-reads centroids from Room per merge, and no
+  longer restarts its pairwise scan after each merge — each pass sorts once
+  and absorbs into a per-pass dead set, so comparison cost is decoupled from
+  merge count. ✅ *previously 1.8–2.1 s for 150 merges from 300 clusters
+  against a ≤ 1 s @ 200-cluster target; awaiting a fresh CI measurement*
 - `PhotoDao.findByIdsChunked()` respects the SQLite 999-variable limit. ✅
 - Clustering benchmarks at 100 / 1k / 5k synthetic embeddings, asserting on
   operation counts rather than wall-clock so they catch a complexity
@@ -64,7 +64,8 @@ performance plan, privacy/security, decision log (D1–D16), risk register
   estimate, "also shows someone else" flags, Copy/Move choice. ✅
 - Undo / export-report surface built on the operation log. ✅
 - Image-viewer zoom state no longer bleeds between pages. ✅
-- Split the 712-line `ClusterDetailScreen` into screen + components. ⏳
+- Split the 712-line `ClusterDetailScreen` into a 274-line screen plus five
+  component files under `ui/screens/clusterdetail/`. ✅
 - Unassigned/review-group surface (pairs with the Phase 4 item). ⏳
 
 ## Phase 6 — Safe album export ✅ (move mode gated)
@@ -113,15 +114,15 @@ criterion, and enabling the flag needs an explicit human decision.
 
 ## Phase 9 — Release prep 🟨
 
-- Model-asset integrity: `verifyFaceModelPresent` now also checks SHA-256 when
-  the `faceModelSha256` property is set, and warns (rather than failing) when
-  it isn't — no checksum is pinned here, because the asset isn't shipped. ✅
+- Model asset sourced, converted, committed, and checksum-pinned:
+  MobileFaceNet from sirius-ai (Apache-2.0), 112×112 in / 128-D out, with
+  `verifyFaceModelPresent` gating its SHA-256. ✅
 - Signed-build instructions, verified against the env var names the code
   actually reads. ✅
 - [`docs/release/known-limitations.md`](docs/release/known-limitations.md),
   every claim cited to a source file. ✅
-- `assembleRelease` CI job. ⏳ *blocked: the MobileFaceNet asset is not
-  committed, so a release job would be permanently red*
+- `assembleRelease` CI job. ⏳ *no longer blocked by the missing model asset —
+  now only needs signing secrets available to the workflow*
 - Final acceptance run against the spec's Definition of Done. ⏳
 
 ## Known gaps carried forward
@@ -131,5 +132,6 @@ criterion, and enabling the flag needs an explicit human decision.
 2. Low-confidence faces still become singleton clusters rather than landing in
    an explicit review queue.
 3. No static analysis beyond Android Lint.
-4. The MobileFaceNet `.tflite` asset is not in the repository; release builds
-   fail by design until it is supplied (see `INSTALL.md`).
+4. The bundled model's recognition accuracy is unmeasured — verified for
+   shape, dtype and determinism only, never against a labelled dataset or a
+   real photo.
