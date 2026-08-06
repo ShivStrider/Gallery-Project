@@ -203,28 +203,58 @@ If the build fails, see §7 *Troubleshooting*.
 
 ## 5. First-run checklist
 
+> Nobody has run this build on real hardware yet. Everything below is derived
+> from the code, not from a device session — so treat it as what *should*
+> happen, and see §5b for what to do when it doesn't.
+
 1. **Open FaceAlbum** on your phone.
-2. **Welcome screen** → tap *Grant Access*. On Android 13+ pick "Allow all" so
-   the indexer can see every photo (not just a subset).
-3. **People screen** appears. The first scan kicks off automatically — you'll
-   see a foreground notification "Finding faces in your photos" and a progress
-   banner in the app showing `Scanning 12 / 4382 · 7 faces`.
-4. After a few minutes (depends on library size + device CPU), the first
-   cluster tiles appear. By default a cluster needs ≥ 3 faces to show up —
-   lower this in *Settings → Minimum cluster size* if you want to see
-   singletons too.
-5. **Tap a tile** → cluster detail. Tap the ✎ next to the placeholder name to
-   rename ("Mum", "Sarah", whatever).
-6. **Tap *Export album*** in the detail screen → enter a name → confirm.
-   Photos land in `Pictures/FaceAlbums/<name>/` and are immediately visible in
-   Google Photos and Files.
-7. **Merge two tiles that are the same person**: open the more-faces tile,
-   tap *Merge with…*, pick the other one. The smaller cluster folds in.
+2. **Welcome screen** → tap *Grant Access*. On Android 13+ pick **"Allow all"**.
+   Picking "Select photos…" is supported, but then the app can only ever see
+   the subset you picked, and anything outside it is treated as deleted.
+3. **People screen** appears, empty, with a **Scan photos** button. **The scan
+   does not start on its own** — you have to tap it. (`MainViewModel.startIndex`
+   is only called from that button; nothing auto-triggers it.) On Android 13+
+   you'll be asked for notification permission at this point; declining is fine
+   and the scan still runs, you just lose the progress notification.
+4. While scanning you get a foreground notification ("Finding faces in your
+   photos") and an in-app banner reading `Scanning 12 of 4382 · 7 faces found`.
+5. Tiles appear as clusters reach the minimum group size — **3 by default**, so
+   a person in one or two photos will not appear at all. Lower it in
+   *Settings → Grouping → Minimum group size* if the grid looks emptier than
+   expected.
+6. **Tap a tile** → person detail. The action row has **Rename**, **Merge**,
+   **Export album**, and a favourite toggle.
+7. **Export album** does *not* immediately ask for a name. It first builds a
+   plan, then opens a **"Review before exporting"** sheet showing the exact
+   file count, the source folders, the destination, a size estimate, and a
+   warning for photos that also contain someone else. You choose the album name
+   and the mode there, then confirm. **Only Copy is available** — Move is
+   implemented but disabled behind `ExportFeature.MOVE_ENABLED` pending
+   on-device verification, so the Move option will not be offered.
+8. Copies land in `Pictures/FaceAlbums/<name>/` and the completion screen
+   offers **Undo**, which removes the copies it made.
+9. **Merge two tiles of the same person**: open either, tap *Merge*, pick the
+   other. Note the confirmation says this can't be undone, and it means it —
+   there is no stored record of a merge to reverse.
 
-The scan progress banner disappears when indexing finishes. Re-running is
-incremental — only new or modified photos get processed.
+Re-running a scan is incremental: only new or modified photos are processed.
 
----
+## 5b. What to watch for, and what "wrong" looks like
+
+These are the parts that have never been exercised, ranked by how likely they
+are to bite:
+
+| What to check | Looks right | Looks wrong → likely cause |
+|---|---|---|
+| **Grouping quality** — the big unknown | Same person's photos land together; different people stay apart | Everything in one giant group, or every photo its own group → the model's accuracy has never been measured (see `docs/release/known-limitations.md`). Try *Settings → Grouping strictness* before assuming a bug. |
+| First scan completes | Banner counts up and finishes | Stalls at 0 → model failed to load; the People screen shows an error banner rather than crashing |
+| Memory on a large library | Scan runs to completion | `OutOfMemoryError` → lower `MAX_BITMAP_DIMENSION` from 1024 |
+| Backgrounding mid-scan | Resumes or continues | Silently stops → foreground-service/WorkManager issue worth reporting |
+| Export of a large album | Progress notification, then "Album ready" | Partial album → check the completion screen's per-state tallies |
+
+Worth knowing: grouping runs on **128-dimensional** embeddings from the bundled
+MobileFaceNet. If you swap the model for one of a different width, every
+existing embedding becomes incomparable and you must re-scan from scratch.
 
 ## 6. Verifying it actually works end-to-end
 
@@ -232,7 +262,7 @@ Smoke test (real device, ~5 minutes):
 
 | Step | Expected |
 |---|---|
-| Grant photo permission | Foreground notification shows up; banner shows progress climbing. |
+| Grant photo permission, then tap **Scan photos** | Foreground notification shows up; banner shows progress climbing. |
 | After ~100 photos scanned | At least one cluster with several faces of the same person; clearly different people stay separate. |
 | Rename a cluster, kill app, re-open | Name is still there. |
 | Export → look in Google Photos | New album `FaceAlbums/<Name>/` containing only that person's photos. |
@@ -240,8 +270,10 @@ Smoke test (real device, ~5 minutes):
 | Turn airplane mode on for the whole flow | Everything still works; no crash, no missing UI. |
 
 If any of these fail, the most likely culprits are:
-- Model file missing → see §3.
-- Model contract mismatch → clusters look random.
+- Clusters look random → the bundled model's accuracy is unverified; this is
+  the single most likely real defect, not a misconfiguration.
+- Model file corrupted → `verifyFaceModelPresent` catches this on release
+  builds via the pinned SHA-256, but debug builds don't run that gate.
 - Photo permission scoped to a subset → reset photo permission in
   Settings → Apps → FaceAlbum → Permissions → "Allow all".
 
