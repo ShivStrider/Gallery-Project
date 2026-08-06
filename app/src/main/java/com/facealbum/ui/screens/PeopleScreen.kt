@@ -21,11 +21,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.item
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Face
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
@@ -41,6 +43,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -66,7 +69,9 @@ fun PeopleScreen(
     onClusterClick: (Long) -> Unit,
     onScanNow: () -> Unit,
     onOpenSettings: () -> Unit,
-    limitedAccess: Boolean = false
+    limitedAccess: Boolean = false,
+    reviewNeededFaceCount: Int = 0,
+    onReviewNeededClick: () -> Unit = {}
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
@@ -154,9 +159,10 @@ fun PeopleScreen(
             }
 
             when {
-                clusters.isEmpty() && indexProgress.running && indexProgress.total > 0 ->
+                clusters.isEmpty() && reviewNeededFaceCount == 0 &&
+                    indexProgress.running && indexProgress.total > 0 ->
                     SkeletonGrid(modifier = Modifier.weight(1f))
-                clusters.isEmpty() ->
+                clusters.isEmpty() && reviewNeededFaceCount == 0 ->
                     EmptyPeopleState(
                         isScanning = indexProgress.running,
                         onScanNow = startScan,
@@ -177,6 +183,17 @@ fun PeopleScreen(
                         verticalArrangement = Arrangement.spacedBy(Spacing.md),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        // Distinct affordance, not a person — kept out of the
+                        // faceCount-desc ordering the DAO gives `clusters` so
+                        // it doesn't jostle around as small groups grow.
+                        if (reviewNeededFaceCount > 0) {
+                            item(key = "review_needed") {
+                                ReviewNeededTile(
+                                    faceCount = reviewNeededFaceCount,
+                                    onClick = onReviewNeededClick
+                                )
+                            }
+                        }
                         items(clusters, key = { it.id }) { cluster ->
                             ClusterTile(
                                 cluster = cluster,
@@ -257,8 +274,9 @@ private fun ErrorBanner(message: String) {
     }
 }
 
+/** Package-visible so [ReviewNeededScreen] can reuse the exact same tile. */
 @Composable
-private fun ClusterTile(cluster: ClusterSummary, onClick: () -> Unit) {
+internal fun ClusterTile(cluster: ClusterSummary, onClick: () -> Unit) {
     val nameOrPlaceholder = cluster.displayName?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.people_unnamed)
 
@@ -317,6 +335,73 @@ private fun ClusterTile(cluster: ClusterSummary, onClick: () -> Unit) {
                 )
                 Text(
                     text = stringResource(R.string.people_face_count_format, cluster.faceCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The "Review needed" grid entry — same tile shape and bottom scrim as
+ * [ClusterTile] so it reads as part of the same grid, but a flat tinted
+ * surface and question-mark icon stand in for a cover photo so it can never
+ * be mistaken for a person, and the subtitle counts faces, never "photos".
+ */
+@Composable
+private fun ReviewNeededTile(faceCount: Int, onClick: () -> Unit) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier.aspectRatio(0.85f),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.HelpOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+            ) {
+                Text(
+                    text = stringResource(R.string.people_review_needed_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1
+                )
+                Text(
+                    text = pluralStringResource(
+                        R.plurals.people_review_needed_subtitle,
+                        faceCount,
+                        faceCount
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.85f),
                     maxLines = 1

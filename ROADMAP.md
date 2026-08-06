@@ -42,7 +42,7 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 - `FaceDetectorWrapper` / `FaceEmbedder` built lazily, so nothing native is
   allocated on ModelNotReady paths and `close()` skips what was never used. ✅
 
-## Phase 4 — Grouping at scale & uncertainty 🟨
+## Phase 4 — Grouping at scale & uncertainty ✅
 
 - In-memory centroid cache — removes the per-face full-table centroid read. ✅
 - `mergeClose()` no longer re-reads centroids from Room per merge, and no
@@ -55,10 +55,12 @@ performance plan, privacy/security, decision log (D1–D16), risk register
   operation counts rather than wall-clock so they catch a complexity
   regression without flaking on a noisy runner. ✅ *measured: `assign` is flat
   at 239–440 µs/face across all three scales, ~20× inside its target*
-- "Review needed / Unassigned" group for low-confidence faces, instead of
-  forcing them into singleton clusters. ⏳
+- "Review needed" group surfacing faces the minimum-group-size filter hides,
+  which were previously unreachable in the UI entirely. ✅ *implemented as a
+  query over existing data, not a second assign threshold in the clusterer —
+  that remains open, and composes with this*
 
-## Phase 5 — Review UI completion 🟨
+## Phase 5 — Review UI completion ✅
 
 - Export preview sheet: exact file count, source folders, destination, size
   estimate, "also shows someone else" flags, Copy/Move choice. ✅
@@ -66,7 +68,8 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 - Image-viewer zoom state no longer bleeds between pages. ✅
 - Split the 712-line `ClusterDetailScreen` into a 274-line screen plus five
   component files under `ui/screens/clusterdetail/`. ✅
-- Unassigned/review-group surface (pairs with the Phase 4 item). ⏳
+- Review-needed surface in the People grid, routing into the existing
+  cluster-detail screen for rename and reassignment. ✅
 
 ## Phase 6 — Safe album export ✅ (move mode gated)
 
@@ -130,8 +133,10 @@ criterion, and enabling the flag needs an explicit human decision.
 
 1. Move export is implemented but off; on-device verification is required
    before the flag flips.
-2. Low-confidence faces still become singleton clusters rather than landing in
-   an explicit review queue.
+2. The merge-target picker only offers clusters at or above the minimum group
+   size, so two small clusters of the same person cannot be merged into each
+   other from the review queue — only into an already-visible person.
+   Pre-existing, surfaced by the review queue rather than caused by it.
 3. No static analysis beyond Android Lint.
 4. The bundled model's recognition accuracy is unmeasured — verified for
    shape, dtype and determinism only, never against a labelled dataset or a

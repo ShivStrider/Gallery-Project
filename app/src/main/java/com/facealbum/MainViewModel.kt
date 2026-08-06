@@ -88,6 +88,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The complement of [clusters]: clusters the "Minimum group size" setting
+     * currently hides. Surfaced as a "Review needed" entry on the People grid
+     * so faces below that size stay reachable instead of silently vanishing.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val reviewNeededClusters: StateFlow<List<ClusterSummary>> =
+        minClusterSize
+            .flatMapLatest { min -> db.clusterDao().summariesBelow(min) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val reviewNeededFaceCount: StateFlow<Int> =
+        minClusterSize
+            .flatMapLatest { min -> db.clusterDao().reviewNeededFaceCount(min) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     data class IndexProgress(
         val running: Boolean,
         val done: Int,

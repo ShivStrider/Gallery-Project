@@ -90,6 +90,10 @@
     <string name="people_open_settings">Open settings</string>
     <string name="people_limited_access_body">FaceAlbum can only see the photos you\'ve selected.</string>
     <string name="people_limited_access_manage">Manage</string>
+    <string name="people_review_needed_title">Review needed</string>
+    <string name="people_review_needed_back">Back to People</string>
+    <string name="people_review_needed_empty">Nothing waiting on review right now.</string>
+    <string name="people_review_needed_body">These photos have faces that appear too rarely to form their own group yet. Open one to rename it or move its photos to someone else.</string>
 
     <!-- Person detail -->
     <string name="person_detail_back">Back</string>
@@ -166,5 +170,9 @@
     <plurals name="export_preview_skipped">
         <item quantity="one">%d photo can\'t be exported and will be skipped.</item>
         <item quantity="other">%d photos can\'t be exported and will be skipped.</item>
+    </plurals>
+    <plurals name="people_review_needed_subtitle">
+        <item quantity="one">%d face below your minimum group size</item>
+        <item quantity="other">%d faces below your minimum group size</item>
     </plurals>
 </resources>
