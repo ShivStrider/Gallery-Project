@@ -146,3 +146,26 @@ jobs:
           name: test-results
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+      # Repeated verbatim as the LAST step on purpose. The same summary runs
+      # earlier, right after the tests, but the lint and assemble output that
+      # follows buries it hundreds of lines deep — and the GitHub API only
+      # exposes job logs from the tail, while the raw log blob sits behind a
+      # host the agent proxy blocks. Printing it again at the very end means a
+      # short tail always reaches the numbers.
+      - name: Result summary (repeated at end of job for log-tail access)
+        if: always()
+        run: |
+          echo "=== Per-suite test counts (deduplicated across variants) ==="
+          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null \
+            | xargs -r sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1 \2 \3 \4 \5/p' \
+            | sort -u > /tmp/suite-counts-final.txt
+          awk '{print $1": tests="$2" skipped="$3" failures="$4" errors="$5}' /tmp/suite-counts-final.txt
+          echo "=== Totals ==="
+          awk '{t+=$2; s+=$3; f+=$4; e+=$5} END {print "suites="NR" tests="t" skipped="s" failures="f" errors="e}' \
+            /tmp/suite-counts-final.txt
+          echo "=== Benchmark output ==="
+          find app/build/test-results -name 'TEST-com.facealbum.perf.*.xml' 2>/dev/null \
+            | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
+            | sort -u \
+            || echo "No benchmark output found."
