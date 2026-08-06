@@ -48,8 +48,8 @@ performance plan, privacy/security, decision log (D1–D16), risk register
 - `mergeClose()` no longer re-reads centroids from Room per merge, and no
   longer restarts its pairwise scan after each merge — each pass sorts once
   and absorbs into a per-pass dead set, so comparison cost is decoupled from
-  merge count. ✅ *previously 1.8–2.1 s for 150 merges from 300 clusters
-  against a ≤ 1 s @ 200-cluster target; awaiting a fresh CI measurement*
+  merge count. ✅ *measured 232/569 ms for 150 merges from 300 clusters, down
+  from 1801/2065 ms, now inside the ≤ 1 s @ 200-cluster target*
 - `PhotoDao.findByIdsChunked()` respects the SQLite 999-variable limit. ✅
 - Clustering benchmarks at 100 / 1k / 5k synthetic embeddings, asserting on
   operation counts rather than wall-clock so they catch a complexity
@@ -98,7 +98,8 @@ criterion, and enabling the flag needs an explicit human decision.
 ## Phase 7 — Performance & large-library validation 🟨
 
 - Clustering benchmarks with assertions on operation counts (so a complexity
-  regression fails the build, but runner noise does not). 🟨
+  regression fails the build, but runner noise does not), with measured
+  figures recorded in the performance plan. ✅
 - Measured memory ceiling for the indexing pipeline. ⏳
 - ~10 GB soak run, cancellation and resume end-to-end. ⏳
 

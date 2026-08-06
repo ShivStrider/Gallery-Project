@@ -55,36 +55,44 @@ seed — no real photos or face data).
   pass, proving the merge loop works off the in-memory cache rather than
   re-querying Room after absorbing each pair.
 - **Wall-clock is measured and printed, not hard-asserted**, guarded only by a
-  loose (~10x the target) sanity ceiling that a correct implementation could
-  never approach even on a slow/noisy CI runner. The point of the ceiling is to
-  catch a genuine algorithmic blowup (e.g. an accidental return to O(n) Room
-  reads), not to enforce the target numbers themselves — CI runners are shared
-  and a tight wall-clock assertion would flake independently of any real
-  regression.
+  loose sanity ceiling that a correct implementation could never approach even
+  on a slow/noisy CI runner (50 ms/face amortized for `assign`; 5 s for the
+  `mergeClose` pass, tightened from 10 s once the restart fix landed). The
+  point of the ceiling is to catch a genuine algorithmic blowup, not to enforce
+  the target numbers themselves — CI runners are shared and a tight wall-clock
+  assertion would flake independently of any real regression.
 - A separate test asserts the synthetic generator itself actually produces
   cosine similarity above the 0.6 assign threshold for same-identity variants
   and below it for different identities, with margin — otherwise the benchmark
   above would silently degenerate (e.g. everything landing in one cluster) and
   stop exercising the code paths it's meant to measure.
 
-**Known caveat found while writing this test (not fixed here, out of scope for
-P4.5):** `mergeClose`'s pairwise *comparison* loop appears to still restart its
-scan from the top of the cluster list after every single merge (see the
-`while (changed) { ... }` / `break@outer` structure in `FaceClusterer.kt`). This
-is a comparison-count concern distinct from the DB-read-count guarantee this
-benchmark asserts (which does hold) — it means a pass with many merges could
-still cost more comparisons than a single O(n²) scan would suggest. Flagged for
-follow-up; the benchmark's merge scenario is deliberately bounded (~300
-pre-merge clusters, not one singleton per face at 5k scale) so this doesn't
-blow up the test's own runtime.
+**Caveat found by this benchmark, since fixed (P4.2).** `mergeClose`'s pairwise
+*comparison* loop used to `break@outer` and restart its scan — re-sorting the
+whole cluster list — after every single merge, coupling cost to merge count
+rather than cluster count. The benchmark measured that at 1801/2065 ms for 150
+merges from 300 clusters, against a ≤ 1 s target, which is what justified
+fixing it. Each pass now sorts once and absorbs into a per-pass dead set,
+repeating passes only while the previous one merged something. Two tests in
+`FaceClustererTest` pin the semantics the rewrite had to preserve: the larger
+cluster still absorbs the smaller (keeping its id and user-assigned name), and
+convergence still happens across passes when one merge newly brings a third
+cluster within threshold. Measured effect below.
 
 ### Measured numbers
 
 From GitHub Actions run
-[30713584503](https://github.com/ShivStrider/Gallery-Project/actions/runs/30713584503)
-(commit `1de6829`), read off the workflow's **Benchmark output** step. Two
-figures per row because the debug and release unit-test variants each run the
-suite; both are given rather than averaged.
+[31072313418](https://github.com/ShivStrider/Gallery-Project/actions/runs/31072313418)
+(commit `047ec3d`), read off the workflow's **Result summary** step. Two figures
+per row because the debug and release unit-test variants each run the suite;
+both are given rather than averaged. Where only one figure appears, both
+variants printed the identical line and it was deduplicated.
+
+Note these numbers are unaffected by `EMBEDDING_SIZE` dropping from 512 to 128
+when the real model was bundled: the benchmark generates its own 512-dimension
+synthetic vectors (`private val dim = 512`) and never reads
+`FaceRecognitionConfig`, so it stays comparable across that change. Verified by
+reading the test, not assumed.
 
 These are ubuntu-latest CI-runner numbers on synthetic embeddings under
 Robolectric — useful for tracking relative change between runs, not a
@@ -94,17 +102,19 @@ sufficient.
 
 | Scale (faces) | Identities | Clusters formed | `assign` total (ms) | `assign` amortized (µs/face) | Target (amortized) |
 |---|---|---|---|---|---|
-| 100 | 20 | 20 | 33 / 44 | 330 / 440 | ≤ 5 000 µs/face (5 ms) |
-| 1 000 | 100 | 100 | 253 / 289 | 253 / 289 | ≤ 5 000 µs/face (5 ms) |
-| 5 000 | 200 | 200 | 1 195 / 1 255 | 239 / 251 | ≤ 5 000 µs/face (5 ms) |
+| 100 | 20 | 20 | 35 | 350 | ≤ 5 000 µs/face (5 ms) |
+| 1 000 | 100 | 100 | 317 / 458 | 317 / 458 | ≤ 5 000 µs/face (5 ms) |
+| 5 000 | 200 | 200 | 1 424 / 1 542 | 284.8 / 308.4 | ≤ 5 000 µs/face (5 ms) |
 
-`assign` comes in roughly 20× inside its target, and — the point of the
+`assign` comes in roughly 16× inside its target, and — the point of the
 exercise — the amortized cost does **not** grow with scale: 5 000 faces against
-200 clusters costs less per face (239–251 µs) than 100 faces against 20
-clusters (330–440 µs), where JIT warm-up dominates. Clusters formed equals
+200 clusters costs 285–308 µs per face, no worse than 100 faces against 20
+clusters at 350 µs, where JIT warm-up dominates. Clusters formed equals
 identities exactly at every scale, so the run is genuinely exercising
 assignment rather than collapsing into one blob or degenerating into
-singletons.
+singletons. (An earlier run recorded 239–440 µs/face across the same scales;
+the spread between runs is runner noise, which is exactly why the hard
+assertions are on operation counts rather than wall-clock.)
 
 Generator separation for the same run: `minIntraSim=0.798`,
 `maxInterSim=0.0698` against an assign threshold of 0.6 — a wide margin either
@@ -112,15 +122,17 @@ side, which is what makes the numbers above meaningful.
 
 | Scenario | Pre-merge clusters | Post-merge clusters | `mergeClose` total (ms) | Target |
 |---|---|---|---|---|
-| 300 forced pre-merge clusters (150 merges) | 300 | 150 | 1 801 / 2 065 | ≤ 1 000 ms at 200 clusters |
+| 300 forced pre-merge clusters (150 merges) | 300 | 150 | **232 / 569** | ≤ 1 000 ms at 200 clusters |
 
-**`mergeClose` is the one number that does not look comfortable.** 1.8–2.1 s to
-perform 150 merges is above the ≤ 1 s target, though not a like-for-like
-comparison: the target is stated at 200 clusters and this scenario starts from
-300. It is consistent with the comparison-restart caveat noted above — the
-pairwise scan restarts and re-sorts after every merge, so cost grows with
-*merges × clusters* rather than with clusters alone. The test still passes
-because its wall-clock fence is deliberately loose (10 s), and the DB-read
-invariant it actually asserts does hold. Treat this row as the measurement that
-justifies fixing the restart, and re-measure at 200 clusters afterwards for a
-clean comparison against the target.
+**`mergeClose` now clears its target with room to spare.** Removing the
+per-merge restart took 150 merges from 300 clusters from 1801/2065 ms down to
+**232/569 ms** — a 3–8× reduction, and now comfortably inside the ≤ 1 s target
+even though this scenario starts from 300 clusters rather than the 200 the
+target is stated at. That confirms the restart really was the dominant cost,
+rather than the diagnosis being wrong about where the time went.
+
+The benchmark's wall-clock fence was tightened from 10 s to 5 s alongside the
+fix, so a regression back toward the old behaviour now fails the build instead
+of passing quietly. The fence stays well above the measured figure on purpose:
+it exists to catch an algorithmic regression, not to police runner variance —
+note the 232 vs 569 ms spread between the two variants in a single run.
