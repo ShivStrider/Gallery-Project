@@ -316,8 +316,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Every non-empty cluster except [excludeClusterId], for the merge
+     * picker. Deliberately draws from both [clusters] (>= "Minimum group
+     * size") and [reviewNeededClusters] (below it) rather than [clusters]
+     * alone — the latter made two below-threshold clusters of the same
+     * person impossible to merge into each other, since neither one could
+     * ever appear as a target for the other. Both source lists are already
+     * kept live by the People and Review Needed screens' own
+     * `collectAsState()` calls, so reusing their `.value` here needs no new
+     * StateFlow (and no new `ClusterDao` query, which would also require a
+     * matching override in `ClusteringBenchmarkTest`'s hand-written
+     * `CountingClusterDao`). Sorted by faceCount desc — the same primary key
+     * `ClusterDao.summariesAtLeast` and `ClusterDao.summariesBelow` already
+     * use — so the merged list reads as one predictable ranking rather than
+     * two lists stuck together.
+     */
     fun pickAvailableMergeTargets(excludeClusterId: Long): List<ClusterSummary> {
-        return clusters.value.filter { it.id != excludeClusterId }
+        return (clusters.value + reviewNeededClusters.value)
+            .filter { it.id != excludeClusterId }
+            .sortedByDescending { it.faceCount }
     }
 
     fun toggleFavorite(clusterId: Long) {
