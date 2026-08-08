@@ -15,15 +15,18 @@ board. Where the two disagree, the contract wins and this file is stale.
   `assembleDebug` + `assembleDebugAndroidTest` so it cannot regress. ✅
 - Release builds fail loudly when signing env is absent instead of silently
   debug-signing. ✅
-- Static analysis (detekt/ktlint). 🟨 *detekt 1.23.7 is wired up
-  (`config/detekt/detekt.yml`, CI step) and **configures cleanly** — the
-  build stays green and the feared plugin/Kotlin version mismatch did not
-  materialise. But its first run produced **no report at all** and finished
-  in 5 seconds, which looks like the task being skipped as NO-SOURCE rather
-  than analysing anything. So detekt currently checks nothing. The CI step
-  now prints the task outcome and the contents of `app/build/reports` so the
-  next run explains why. Do not treat this item as done: nothing is being
-  analysed, let alone enforced.*
+- Static analysis (detekt/ktlint). ⏳ *attempted and reverted.* detekt 1.23.7
+  applied cleanly against Kotlin 1.9.20 — no plugin or version problem, the
+  build stayed green — but the `detekt` task finished in 2–5 seconds and
+  produced no report on any run, so it analysed nothing. Three attempts to
+  read the task-outcome line out of the CI log failed: the step runs mid-job
+  and the GitHub API only serves log tails, which the assemble output buries.
+  Rather than leave configuration that looks like static analysis while
+  checking nothing, it was removed whole. Anyone retrying should first work
+  out whether the base `detekt` task is NO-SOURCE under AGP (the custom
+  `source.setFrom(...)` is the prime suspect) or whether the useful task is a
+  variant one such as `detektMain`, and should print the task outcome at the
+  END of the job where a short tail can reach it.*
 
 ## Phase 1 — Requirements & architecture freeze ✅
 
@@ -135,20 +138,14 @@ criterion, and enabling the flag needs an explicit human decision.
   every claim cited to a source file. ✅
 - `assembleRelease` CI job. ⏳ *no longer blocked by the missing model asset —
   now only needs signing secrets available to the workflow*
-- Final acceptance run against the spec's Definition of Done. ✅
-  [`docs/release/definition-of-done.md`](docs/release/definition-of-done.md)
-  — result: two criteria met, three partial, one not met, all tracing to the
-  same cause (verified in CI on a JVM, not on a device).
+- Final acceptance run against the spec's Definition of Done. ⏳
 
 ## Known gaps carried forward
 
 1. Move export is implemented but off; on-device verification is required
    before the flag flips.
-2. Grouping accuracy on real photos is entirely unmeasured — the bundled
-   model has never processed a photograph. This is the largest open risk and
-   the one most likely to make the app feel broken regardless of correctness.
-3. detekt runs in CI but report-only — no findings can fail the build yet.
-   Tightening enforcement is the outstanding step (see Phase 0 above).
-4. The bundled model's recognition accuracy is unmeasured — verified for
-   shape, dtype and determinism only, never against a labelled dataset or a
-   real photo.
+2. Grouping accuracy on real photos is entirely unmeasured — the bundled model
+   has never processed a photograph. Largest open risk, and the one most
+   likely to make the app feel broken regardless of whether the code is right.
+3. No static analysis beyond Android Lint. detekt 1.23.7 was added and then
+   reverted — see Phase 0.

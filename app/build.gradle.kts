@@ -6,7 +6,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("androidx.room")
-    id("io.gitlab.arturbosch.detekt")
 }
 
 val mobileFaceNetAsset = layout.projectDirectory.file("src/main/assets/mobile_face_net.tflite")
@@ -221,44 +220,6 @@ tasks.matching { it.name in setOf("assembleRelease", "bundleRelease", "packageRe
         dependsOn("verifyReleaseSigningConfigured")
         dependsOn("decodeReleaseKeystore")
     }
-
-// Static analysis (Phase 0 follow-up — see ROADMAP.md). Landed in
-// report-only mode: this is detekt's first run against real code on this
-// branch, coming straight off three red CI runs, so findings must not be
-// able to fail the build until a human has read one real report and decided
-// what's worth tightening. `ignoreFailures` below is what actually enforces
-// that; `continue-on-error` on the CI step (.github/workflows/android.yml)
-// is belt-and-braces on top of it.
-detekt {
-    // Inherit detekt's own default rule set and only override the handful of
-    // rules that fight this codebase's conventions — see
-    // config/detekt/detekt.yml for exactly which, and why.
-    buildUponDefaultConfig = true
-    config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
-
-    // Production Kotlin only. Test sources (src/test, src/androidTest) are
-    // excluded here rather than fought rule-by-rule in the yml — mocks,
-    // fixtures and test doubles trip the same "smell" rules for reasons that
-    // don't apply to test code, and this is a first landing, not a tuned setup.
-    source.setFrom(files("src/main/java"))
-}
-
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
-    jvmTarget = "17"
-
-    // Report-only for now — see the comment on the `detekt {}` block above.
-    // Do not flip this on its own; it should change alongside a decision
-    // about which findings are worth enforcing, recorded in ROADMAP.md.
-    ignoreFailures = true
-
-    reports {
-        xml.required.set(true)
-        html.required.set(true)
-        txt.required.set(true)
-        sarif.required.set(false)
-        md.required.set(false)
-    }
-}
 
 dependencies {
     // Core
