@@ -11,7 +11,7 @@ Build the smallest reliable application that solves the core problem: find local
 ## MVP scope (in)
 
 1. MediaStore-based photo discovery: camera, downloads, WhatsApp, Instagram, screenshots — every image MediaStore can see; incremental re-scan; resilient to deleted/moved photos.
-2. On-device face detection (ML Kit) and face embeddings (MobileFaceNet TFLite, 512-D).
+2. On-device face detection (ML Kit) and face embeddings (MobileFaceNet TFLite, 128-D — recorded here as 512-D until the model was actually sourced and converted; the graph emits 128).
 3. Automatic grouping (online centroid clustering, cosine similarity) with an explicit "review needed" surface for low-confidence faces.
 4. Review UI: people grid, person detail, rename, merge, move a photo out of a group, multi-select, full-screen viewer.
 5. Export as **Copy** (default until the destructive-operation test suite passes) or **Move** (API 30+; copy → verify → user-consented source deletion), with an exact pre-flight preview of every file affected, a persisted per-file transaction log, resume after interruption, a result report, and undo.
@@ -31,3 +31,6 @@ Social features; accounts; cloud sync/upload of any kind; photo editing; filters
 - Export previews the exact file list; only selected files are ever touched; destination verified (existence, size, checksum, readability) before any source deletion; deletion only via the system consent dialog; interrupted exports resume without loss or duplication; unrelated files provably untouched (test suite).
 - Facial data never leaves the device (no INTERNET, backup excluded, no sensitive data in logs).
 - Automated tests pass in CI including the destructive-operation suite; performance measured at 100/1k/5k photos; limitations documented honestly.
+
+An honest audit of this release gate, criterion by criterion, is kept in
+[`docs/release/definition-of-done.md`](../release/definition-of-done.md).
