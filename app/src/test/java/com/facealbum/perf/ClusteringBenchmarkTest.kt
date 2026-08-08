@@ -184,6 +184,16 @@ class ClusteringBenchmarkTest {
         override fun summariesAtLeast(minSize: Int): Flow<List<ClusterSummary>> =
             delegate.summariesAtLeast(minSize)
 
+        // Note for anyone adding to ClusterDao: this fake implements the whole
+        // interface by hand, so a new DAO method breaks this file's
+        // compilation — which takes the entire unit-test source set with it,
+        // producing no test XML at all rather than a localised failure.
+        override fun summariesBelow(minSize: Int): Flow<List<ClusterSummary>> =
+            delegate.summariesBelow(minSize)
+
+        override fun reviewNeededFaceCount(minSize: Int): Flow<Int> =
+            delegate.reviewNeededFaceCount(minSize)
+
         override suspend fun delete(id: Long) = delegate.delete(id)
 
         override suspend fun clear() = delegate.clear()
