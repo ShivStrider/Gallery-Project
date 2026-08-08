@@ -35,8 +35,16 @@ jobs:
             exit 1
           fi
 
+      # Tee'd to a file so the final Result summary step can echo the compiler
+      # errors back out at the end of the job. A compile failure produces no
+      # test XML at all, and the errors themselves land hundreds of lines deep
+      # in a log the API only serves from the tail — which made the last two
+      # compile breaks far more expensive to diagnose than to fix.
+      # pipefail is required or tee would mask gradle's exit status.
       - name: Run unit tests
-        run: ./gradlew test --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew test --stacktrace 2>&1 | tee /tmp/gradle-test.log
 
       # Always print per-suite counts. A green conclusion only proves nothing
       # *ran and failed* — a suite that silently stops running (a filtered
@@ -169,3 +177,19 @@ jobs:
             | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
             | sort -u \
             || echo "No benchmark output found."
+
+          # suites=0 means the tests never ran — almost always a compile error,
+          # not a test failure. Say so loudly and surface the actual compiler
+          # errors here at the end of the job, where a short log tail reaches
+          # them, instead of leaving them buried in the gradle step above.
+          if [ ! -s /tmp/suite-counts-final.txt ]; then
+            echo "=== NO TEST XML PRODUCED — the tests never ran ==="
+            echo "This is the compile-error signature, not a test failure."
+            if [ -f /tmp/gradle-test.log ]; then
+              echo "--- compiler / gradle errors ---"
+              grep -E '^e: |FAILURE: |What went wrong|Execution failed for task|Caused by: ' \
+                /tmp/gradle-test.log | head -60
+            else
+              echo "(no gradle log captured)"
+            fi
+          fi
