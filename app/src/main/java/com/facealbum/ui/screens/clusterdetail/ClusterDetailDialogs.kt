@@ -1,7 +1,11 @@
 package com.facealbum.ui.screens.clusterdetail
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ListItem
@@ -17,8 +21,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.facealbum.R
 import com.facealbum.data.db.ClusterSummary
 
@@ -64,9 +70,28 @@ internal fun MergePicker(
             if (candidates.isEmpty()) {
                 Text(stringResource(R.string.person_detail_merge_empty))
             } else {
-                Column {
-                    candidates.forEach { c ->
+                // Lazy and height-capped rather than a plain Column: the
+                // candidate list is every other cluster, including the
+                // below-threshold ones, so on a real library it can run to
+                // hundreds of rows and an unbounded Column would push the
+                // dialog's buttons off screen.
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(candidates, key = { it.id }) { c ->
                         ListItem(
+                            // Show a face, not just a name. Every unnamed
+                            // group reads "Unnamed", so two of them with the
+                            // same photo count are otherwise identical rows
+                            // with nothing to choose between them.
+                            leadingContent = {
+                                AsyncImage(
+                                    model = c.coverPhotoUri,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                )
+                            },
                             headlineContent = {
                                 Text(c.displayName ?: stringResource(R.string.people_unnamed))
                             },
@@ -101,9 +126,28 @@ internal fun ReassignPicker(
             if (candidates.isEmpty()) {
                 Text(stringResource(R.string.person_detail_merge_empty))
             } else {
-                Column {
-                    candidates.forEach { c ->
+                // Lazy and height-capped rather than a plain Column: the
+                // candidate list is every other cluster, including the
+                // below-threshold ones, so on a real library it can run to
+                // hundreds of rows and an unbounded Column would push the
+                // dialog's buttons off screen.
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(candidates, key = { it.id }) { c ->
                         ListItem(
+                            // Show a face, not just a name. Every unnamed
+                            // group reads "Unnamed", so two of them with the
+                            // same photo count are otherwise identical rows
+                            // with nothing to choose between them.
+                            leadingContent = {
+                                AsyncImage(
+                                    model = c.coverPhotoUri,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                )
+                            },
                             headlineContent = {
                                 Text(c.displayName ?: stringResource(R.string.people_unnamed))
                             },

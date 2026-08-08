@@ -142,10 +142,9 @@ criterion, and enabling the flag needs an explicit human decision.
 
 1. Move export is implemented but off; on-device verification is required
    before the flag flips.
-2. The merge picker renders each candidate as its name (or "Unnamed") plus a
-   photo count, so two unnamed clusters with equal face counts are visually
-   identical — exactly the merge-two-strays case the review queue enables.
-   Picking between them is guesswork until the picker shows a thumbnail.
+2. Grouping accuracy on real photos is entirely unmeasured — the bundled
+   model has never processed a photograph. This is the largest open risk and
+   the one most likely to make the app feel broken regardless of correctness.
 3. detekt runs in CI but report-only — no findings can fail the build yet.
    Tightening enforcement is the outstanding step (see Phase 0 above).
 4. The bundled model's recognition accuracy is unmeasured — verified for
