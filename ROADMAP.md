@@ -15,13 +15,15 @@ board. Where the two disagree, the contract wins and this file is stale.
   `assembleDebug` + `assembleDebugAndroidTest` so it cannot regress. ✅
 - Release builds fail loudly when signing env is absent instead of silently
   debug-signing. ✅
-- Static analysis (detekt/ktlint). 🟨 *detekt 1.23.7 added (`config/detekt/detekt.yml`,
-  CI step in `.github/workflows/android.yml`), but landed in report-only
-  mode — `ignoreFailures = true` on the Gradle task plus `continue-on-error`
-  on the CI step, so findings cannot fail the build yet. Follow-up: read a
-  real CI report and tighten (promote genuine findings to build-breaking,
-  maybe a baseline). ktlint still deferred per D15 — one formatter/analyzer
-  is enough to start.*
+- Static analysis (detekt/ktlint). 🟨 *detekt 1.23.7 is wired up
+  (`config/detekt/detekt.yml`, CI step) and **configures cleanly** — the
+  build stays green and the feared plugin/Kotlin version mismatch did not
+  materialise. But its first run produced **no report at all** and finished
+  in 5 seconds, which looks like the task being skipped as NO-SOURCE rather
+  than analysing anything. So detekt currently checks nothing. The CI step
+  now prints the task outcome and the contents of `app/build/reports` so the
+  next run explains why. Do not treat this item as done: nothing is being
+  analysed, let alone enforced.*
 
 ## Phase 1 — Requirements & architecture freeze ✅
 

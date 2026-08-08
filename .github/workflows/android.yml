@@ -101,7 +101,17 @@ jobs:
       # worth tightening (see ROADMAP.md, Phase 0).
       - name: Run detekt
         continue-on-error: true
-        run: ./gradlew detekt --stacktrace
+        run: |
+          ./gradlew detekt --stacktrace 2>&1 | tee /tmp/detekt.log || true
+          # The first run produced no report at all and finished in 5s, which
+          # looks like the task being skipped as NO-SOURCE rather than
+          # analysing anything. Print the task outcome and whatever actually
+          # landed under build/reports, so the next run says why instead of
+          # just "No detekt report found".
+          echo "--- :app:detekt task outcome ---"
+          grep -E '^> Task :app:detekt' /tmp/detekt.log || echo "(no :app:detekt task line at all)"
+          echo "--- files under app/build/reports ---"
+          find app/build/reports -type f 2>/dev/null | head -30 || echo "(none)"
 
       # Same rationale as the test/benchmark summaries above: the HTML/XML
       # report is only reachable via the artifact below, and the raw log blob
@@ -110,14 +120,19 @@ jobs:
       - name: Detekt summary
         if: always()
         run: |
-          REPORT=app/build/reports/detekt/detekt.xml
-          if [ -f "$REPORT" ]; then
+          # Locate the report rather than assuming its path — the first run
+          # found nothing at the documented default, so search instead of
+          # hardcoding and reporting a false negative.
+          REPORT=$(find app/build/reports -type f -name 'detekt*.xml' 2>/dev/null | head -1)
+          if [ -n "$REPORT" ]; then
             echo "=== Detekt findings by rule (report-only, does not fail the build) ==="
+            echo "report: $REPORT"
             grep -o 'source="[^"]*"' "$REPORT" | sed 's/source="detekt\.//; s/"$//' | sort | uniq -c | sort -rn
             echo "=== Total findings ==="
             grep -c '<error ' "$REPORT" || echo 0
           else
-            echo "No detekt report found (detekt step may not have produced one)."
+            echo "No detekt XML report anywhere under app/build/reports."
+            echo "detekt is therefore analysing nothing — treat it as NOT yet working."
           fi
 
       - name: Upload detekt report
@@ -217,10 +232,12 @@ jobs:
           # Repeated here for the same log-tail reason as everything else in
           # this step. Report-only: a nonzero count here never fails this job.
           echo "=== Detekt findings (report-only, does not fail the build) ==="
-          if [ -f app/build/reports/detekt/detekt.xml ]; then
-            grep -c '<error ' app/build/reports/detekt/detekt.xml || echo 0
+          DREPORT=$(find app/build/reports -type f -name 'detekt*.xml' 2>/dev/null | head -1)
+          if [ -n "$DREPORT" ]; then
+            echo "report: $DREPORT"
+            grep -c '<error ' "$DREPORT" || echo 0
           else
-            echo "No detekt report found."
+            echo "No detekt XML report — detekt is analysing nothing (see the Run detekt step)."
           fi
 
           # suites=0 means the tests never ran — almost always a compile error,
