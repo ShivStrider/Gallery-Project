@@ -92,6 +92,42 @@ jobs:
       - name: Run lint
         run: ./gradlew lint --stacktrace
 
+      # Report-only for now (ignoreFailures = true on the Detekt Gradle task,
+      # app/build.gradle.kts): this is detekt's first run against real code on
+      # this branch, coming straight off three red CI runs, and we don't yet
+      # know what it will report. continue-on-error here is belt-and-braces on
+      # top of that Gradle-level setting — findings must not be able to fail
+      # this job until a human has read one real report and decided what's
+      # worth tightening (see ROADMAP.md, Phase 0).
+      - name: Run detekt
+        continue-on-error: true
+        run: ./gradlew detekt --stacktrace
+
+      # Same rationale as the test/benchmark summaries above: the HTML/XML
+      # report is only reachable via the artifact below, and the raw log blob
+      # host is blocked by a proxy in some environments, so print the finding
+      # counts straight into the job log instead of leaving them artifact-only.
+      - name: Detekt summary
+        if: always()
+        run: |
+          REPORT=app/build/reports/detekt/detekt.xml
+          if [ -f "$REPORT" ]; then
+            echo "=== Detekt findings by rule (report-only, does not fail the build) ==="
+            grep -o 'source="[^"]*"' "$REPORT" | sed 's/source="detekt\.//; s/"$//' | sort | uniq -c | sort -rn
+            echo "=== Total findings ==="
+            grep -c '<error ' "$REPORT" || echo 0
+          else
+            echo "No detekt report found (detekt step may not have produced one)."
+          fi
+
+      - name: Upload detekt report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-report
+          path: app/build/reports/detekt/
+          if-no-files-found: ignore
+
       # Assembling the debug APK and compiling the androidTest source set are
       # the only CI-side proof that the app and its instrumentation tests
       # actually build — `test` + `lint` alone never compile either.
@@ -177,6 +213,15 @@ jobs:
             | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
             | sort -u \
             || echo "No benchmark output found."
+
+          # Repeated here for the same log-tail reason as everything else in
+          # this step. Report-only: a nonzero count here never fails this job.
+          echo "=== Detekt findings (report-only, does not fail the build) ==="
+          if [ -f app/build/reports/detekt/detekt.xml ]; then
+            grep -c '<error ' app/build/reports/detekt/detekt.xml || echo 0
+          else
+            echo "No detekt report found."
+          fi
 
           # suites=0 means the tests never ran — almost always a compile error,
           # not a test failure. Say so loudly and surface the actual compiler

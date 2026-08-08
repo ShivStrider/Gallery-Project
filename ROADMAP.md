@@ -15,7 +15,13 @@ board. Where the two disagree, the contract wins and this file is stale.
   `assembleDebug` + `assembleDebugAndroidTest` so it cannot regress. ✅
 - Release builds fail loudly when signing env is absent instead of silently
   debug-signing. ✅
-- Static analysis (detekt/ktlint). ⏳ *not added — CI runs `lint` only*
+- Static analysis (detekt/ktlint). 🟨 *detekt 1.23.7 added (`config/detekt/detekt.yml`,
+  CI step in `.github/workflows/android.yml`), but landed in report-only
+  mode — `ignoreFailures = true` on the Gradle task plus `continue-on-error`
+  on the CI step, so findings cannot fail the build yet. Follow-up: read a
+  real CI report and tighten (promote genuine findings to build-breaking,
+  maybe a baseline). ktlint still deferred per D15 — one formatter/analyzer
+  is enough to start.*
 
 ## Phase 1 — Requirements & architecture freeze ✅
 
@@ -127,17 +133,21 @@ criterion, and enabling the flag needs an explicit human decision.
   every claim cited to a source file. ✅
 - `assembleRelease` CI job. ⏳ *no longer blocked by the missing model asset —
   now only needs signing secrets available to the workflow*
-- Final acceptance run against the spec's Definition of Done. ⏳
+- Final acceptance run against the spec's Definition of Done. ✅
+  [`docs/release/definition-of-done.md`](docs/release/definition-of-done.md)
+  — result: two criteria met, three partial, one not met, all tracing to the
+  same cause (verified in CI on a JVM, not on a device).
 
 ## Known gaps carried forward
 
 1. Move export is implemented but off; on-device verification is required
    before the flag flips.
-2. The merge-target picker only offers clusters at or above the minimum group
-   size, so two small clusters of the same person cannot be merged into each
-   other from the review queue — only into an already-visible person.
-   Pre-existing, surfaced by the review queue rather than caused by it.
-3. No static analysis beyond Android Lint.
+2. The merge picker renders each candidate as its name (or "Unnamed") plus a
+   photo count, so two unnamed clusters with equal face counts are visually
+   identical — exactly the merge-two-strays case the review queue enables.
+   Picking between them is guesswork until the picker shows a thumbnail.
+3. detekt runs in CI but report-only — no findings can fail the build yet.
+   Tightening enforcement is the outstanding step (see Phase 0 above).
 4. The bundled model's recognition accuracy is unmeasured — verified for
    shape, dtype and determinism only, never against a labelled dataset or a
    real photo.
