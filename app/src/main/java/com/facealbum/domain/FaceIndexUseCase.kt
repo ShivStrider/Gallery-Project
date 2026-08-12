@@ -3,7 +3,6 @@ package com.facealbum.domain
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Rect
 import androidx.room.withTransaction
 import com.facealbum.data.FaceDetectorWrapper
 import com.facealbum.data.FaceEmbedder
@@ -18,6 +17,7 @@ import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.model.PhotoInfo
 import com.facealbum.telemetry.CrashReporter
 import com.facealbum.util.BitmapLoader
+import com.facealbum.util.FaceAligner
 import com.facealbum.util.FacePreprocessor
 import com.google.mlkit.vision.face.Face
 import kotlinx.coroutines.CancellationException
@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import kotlin.math.abs
 
 /**
  * Walks every (modified-since) photo in MediaStore, detects every face,
@@ -313,7 +314,17 @@ class FaceIndexUseCase(
             emptyList()
         } else {
             faces.mapNotNull { face ->
-                computeEmbedding(bitmap, face.boundingBox)?.let { EmbeddedFace(face, it) }
+                if (!isPoseUsable(face)) {
+                    // A steep profile or heavily rolled face embeds poorly and
+                    // then acts as a bridge between otherwise distinct people —
+                    // one bad face pulls two clusters together and the damage
+                    // cascades through the running centroid. Cheaper to skip it
+                    // than to un-merge later.
+                    Timber.d("Skipping face on pose grounds")
+                    null
+                } else {
+                    computeEmbedding(bitmap, face)?.let { EmbeddedFace(face, it) }
+                }
             }
         }
         val photoArea = bitmap?.let { (it.width * it.height).coerceAtLeast(1).toFloat() }
@@ -410,10 +421,28 @@ class FaceIndexUseCase(
         }
     }
 
-    private fun computeEmbedding(bitmap: Bitmap, bbox: Rect): FloatArray? {
-        val preprocessed = FacePreprocessor.cropAndPreprocess(bitmap, bbox)
+    /**
+     * Aligns to the model's canonical layout where possible, falling back to a
+     * plain bounding-box crop when the detector withheld landmarks. The
+     * fallback is deliberately kept rather than skipping the face: an
+     * unaligned embedding is poor, but dropping the face loses the person
+     * entirely from photos where only one shot exists.
+     */
+    private fun computeEmbedding(bitmap: Bitmap, face: Face): FloatArray? {
+        val preprocessed = FaceAligner.align(bitmap, face)
+            ?: FacePreprocessor.cropAndPreprocess(bitmap, face.boundingBox)
         return embedder.getEmbedding(preprocessed)
     }
+
+    /**
+     * Rejects faces whose head pose is too far from frontal for the model to
+     * embed reliably. The thresholds are deliberately generous — this is meant
+     * to drop clear profiles and sideways heads, not to demand passport
+     * photos.
+     */
+    private fun isPoseUsable(face: Face): Boolean =
+        abs(face.headEulerAngleY) <= MAX_YAW_DEGREES &&
+            abs(face.headEulerAngleZ) <= MAX_ROLL_DEGREES
 
     fun close() {
         if (detectorLazy.isInitialized()) detectorLazy.value.close()
@@ -438,6 +467,19 @@ class FaceIndexUseCase(
     companion object {
         /** Parallelism for stage A (decode + ML Kit detect). */
         private const val DETECT_CONCURRENCY = 2
+
+        /**
+         * Yaw beyond this is a profile shot; the aligner can still place the
+         * points but the model never saw such poses in training, so the
+         * embedding is unreliable.
+         */
+        private const val MAX_YAW_DEGREES = 40f
+
+        /**
+         * Roll beyond this also breaks the left/right ordering the aligner
+         * uses to map landmarks onto the template.
+         */
+        private const val MAX_ROLL_DEGREES = 35f
 
         /**
          * Capacity of the channel between stage A and stage B. Combined with
