@@ -350,24 +350,10 @@ class FaceIndexUseCase(
         var clustersWiped = 0
         var photosReset = 0
         db.withTransaction {
-            clustersWiped = db.clusterDao().all().size
+            clustersWiped = db.clusterDao().count()
             db.faceDao().clear()
             db.clusterDao().clear()
-
-            val photoIds = db.photoDao().idAndMediaStoreIdRows().map { it.id }
-            val photos = db.photoDao().findByIdsChunked(photoIds)
-            for (p in photos) {
-                db.photoDao().updateMetadata(
-                    id = p.id,
-                    uri = p.uri,
-                    displayName = p.displayName,
-                    dateTaken = p.dateTaken,
-                    dateModified = 0L,
-                    processedAt = p.processedAt,
-                    faceCount = p.faceCount
-                )
-            }
-            photosReset = photos.size
+            photosReset = db.photoDao().resetReprocessWatermark()
         }
 
         prefs.setEmbeddingPipelineVersion(currentVersion)

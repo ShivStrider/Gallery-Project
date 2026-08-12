@@ -62,7 +62,7 @@ and the exact conversion command are in
 
 Contract (see `FaceRecognitionConfig.kt`):
 
-- **Input**: `1 × 112 × 112 × 3` float32, RGB, normalized to `[-1, 1]`
+- **Input**: `1 × 112 × 112 × 3` float32, RGB, normalized to `[-0.99609375, 0.99609375]` via `(x - 127.5) / 128`
 - **Output**: `1 × 128` float32, already L2-normalized by the graph
 
 > **Corrections.** Earlier revisions of this file said the output was `1 × 512`
@@ -85,7 +85,7 @@ The routes below are kept for anyone substituting a different model.
 Repo: https://github.com/sirius-ai/MobileFaceNet_TF
 
 This is the **license-clean** source whose architecture matches our contract
-(112×112 in, normalized to [-1, 1]) — though it emits 128-D, not 512-D as
+(112×112 in, `(x - 127.5) / 128`) — though it emits 128-D, not 512-D as
 this file used to claim. This is the model now bundled. Catch: the repo ships
 a TensorFlow frozen graph (`.pb`), not a `.tflite`. You'll need to convert it
 once:
@@ -293,7 +293,8 @@ Then in the app, *Settings → Re-scan entire library*.
 **Indexing runs but every cluster looks wrong / mixes people.**
 Model contract mismatch. Confirm:
 - file is at `app/src/main/assets/mobile_face_net.tflite`
-- input is 112×112×3, normalized to [-1, 1]
+- input is 112×112×3, normalized by `(x - 127.5) / 128` — the range is
+  ±0.99609375, not ±1
 - output width matches `FaceRecognitionConfig.EMBEDDING_SIZE` (128 for the bundled model)
 Or update `FaceRecognitionConfig.kt` + `FacePreprocessor.kt` to match what your
 model actually wants.

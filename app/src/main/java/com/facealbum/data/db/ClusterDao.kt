@@ -117,6 +117,13 @@ interface ClusterDao {
     @Query("DELETE FROM clusters WHERE id = :id")
     suspend fun delete(id: Long)
 
+    /**
+     * Row count only. [all] would load every centroid BLOB just to size the
+     * list, which is wasteful when the caller only wants a number.
+     */
+    @Query("SELECT COUNT(*) FROM clusters")
+    suspend fun count(): Int
+
     @Query("DELETE FROM clusters")
     suspend fun clear()
 }

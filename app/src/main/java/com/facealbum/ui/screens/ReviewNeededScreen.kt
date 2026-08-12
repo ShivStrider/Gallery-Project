@@ -67,7 +67,13 @@ fun ReviewNeededScreen(
         Column(modifier = Modifier.padding(top = innerPadding.calculateTopPadding()).fillMaxSize()) {
             if (clusters.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(Spacing.xl),
+                    // The parent Column consumes only the top inset, so the
+                    // empty-state text would otherwise sit under the gesture
+                    // nav bar on a device without a grid to scroll it clear.
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = innerPadding.calculateBottomPadding())
+                        .padding(Spacing.xl),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(

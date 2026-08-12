@@ -273,7 +273,7 @@ private fun ErrorBanner(message: String) {
     }
 }
 
-/** Package-visible so [ReviewNeededScreen] can reuse the exact same tile. */
+/** `internal` (module-visible) so [ReviewNeededScreen] can reuse the exact same tile. */
 @Composable
 internal fun ClusterTile(cluster: ClusterSummary, onClick: () -> Unit) {
     val nameOrPlaceholder = cluster.displayName?.takeIf { it.isNotBlank() }

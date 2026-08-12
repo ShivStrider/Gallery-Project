@@ -110,7 +110,7 @@ class FacePreprocessorTest {
     }
 
     @Test
-    fun `bitmapToFloatArray keeps every value within the exact -0,99609375 to 0,99609375 range`() {
+    fun `bitmapToFloatArray keeps every value within the exact normalized bounds`() {
         // Formula from source: (channel - 127.5f) * 0.0078125f (i.e. / 128, not / 127.5),
         // so the true range is +-(127.5 * 0.0078125) = +-0.99609375, strictly inside
         // +-1. Asserting the tight bound (rather than the old +-1 bound, which the new
@@ -133,7 +133,7 @@ class FacePreprocessorTest {
     }
 
     @Test
-    fun `bitmapToFloatArray maps black to exactly -0,99609375 and white to exactly 0,99609375`() {
+    fun `bitmapToFloatArray maps black and white to the exact normalized bounds`() {
         // Formula from source: (channel - 127.5f) * 0.0078125f
         // channel 0   -> (0 - 127.5) * 0.0078125   = -0.99609375
         // channel 255 -> (255 - 127.5) * 0.0078125 =  0.99609375

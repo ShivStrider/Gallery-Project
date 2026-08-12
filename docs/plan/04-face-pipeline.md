@@ -10,7 +10,7 @@
 | Property | Value |
 |---|---|
 | Model | MobileFaceNet (TFLite), asset `app/src/main/assets/mobile_face_net.tflite` |
-| Input | 1×112×112×3 float32, RGB, normalized to [-1, 1] |
+| Input | 1×112×112×3 float32, RGB, `(x - 127.5) / 128` → [-0.99609375, 0.99609375], **5-point aligned** to the ArcFace template |
 | Output | 1×128 float32, L2-normalized by the graph (and again in-app, idempotent) |
 | Runtime | TensorFlow Lite 2.14, CPU, 4 threads (GPU/NNAPI deliberately off — correctness first) |
 | Quantization | float32 for v1 (quantized variant is a Phase 7+ benchmark decision, not a default) |

@@ -194,6 +194,8 @@ class ClusteringBenchmarkTest {
         override fun reviewNeededFaceCount(minSize: Int): Flow<Int> =
             delegate.reviewNeededFaceCount(minSize)
 
+        override suspend fun count(): Int = delegate.count()
+
         override suspend fun delete(id: Long) = delegate.delete(id)
 
         override suspend fun clear() = delegate.clear()

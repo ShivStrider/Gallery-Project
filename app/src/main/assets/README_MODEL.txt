@@ -11,7 +11,8 @@ truncated, or swapped.
 
 Contract (matches FaceRecognitionConfig + FaceEmbedder)
 -------------------------------------------------------
-  Input  : 1 x 112 x 112 x 3 float32, RGB, normalized to [-1, 1]
+  Input  : 1 x 112 x 112 x 3 float32, RGB, (x - 127.5) / 128
+           i.e. [-0.99609375, 0.99609375], NOT exactly [-1, 1]
   Output : 1 x 128 float32, already L2-normalized by the graph
 
 Note the output is 128-D, NOT the 512-D that earlier revisions of this file
