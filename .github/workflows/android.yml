@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [ main ]
 
+# A push to a branch that has an open PR fires this workflow twice on the very
+# same commit — once for `push`, once for `pull_request`. Both jobs then race
+# on the shared Gradle cache, and one can die seconds in having produced no
+# compiler output at all, putting a spurious red on the PR while the identical
+# commit passes in the sibling run. That happened on ce292a1.
+#
+# Grouping by commit SHA collapses both events into a single run: the two
+# events yield the same SHA, so the later one supersedes the earlier instead of
+# competing with it. Also halves CI minutes on every push to a branch with a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   test-and-lint:
     name: Test & Lint
