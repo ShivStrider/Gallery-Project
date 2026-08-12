@@ -3,8 +3,8 @@ package com.facealbum.domain
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Rect
 import androidx.room.withTransaction
+import com.facealbum.config.FaceRecognitionConfig
 import com.facealbum.data.FaceDetectorWrapper
 import com.facealbum.data.FaceEmbedder
 import com.facealbum.data.ModelState
@@ -14,10 +14,12 @@ import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.FaceEntity
 import com.facealbum.data.db.PhotoEntity
 import com.facealbum.data.db.ScanSessionEntity
+import com.facealbum.data.db.findByIdsChunked
 import com.facealbum.data.prefs.UserPreferences
 import com.facealbum.model.PhotoInfo
 import com.facealbum.telemetry.CrashReporter
 import com.facealbum.util.BitmapLoader
+import com.facealbum.util.FaceAligner
 import com.facealbum.util.FacePreprocessor
 import com.google.mlkit.vision.face.Face
 import kotlinx.coroutines.CancellationException
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import kotlin.math.abs
 
 /**
  * Walks every (modified-since) photo in MediaStore, detects every face,
@@ -103,6 +106,13 @@ class FaceIndexUseCase(
         forceFullRescan: Boolean = false,
         onProgress: suspend (Progress) -> Unit = {}
     ): Int {
+        // Checked before anything else touches the DB or the model: if the
+        // embedding pipeline changed since the last successful index, every
+        // stored face/cluster is stale and must not be served (or scanned
+        // incrementally over) even if this particular run goes on to fail for
+        // an unrelated reason below.
+        val pipelineVersionChanged = invalidateIfPipelineVersionChanged()
+
         when (val state = embedder.modelState) {
             is ModelState.Failed -> throw ModelNotReadyException(state.reason)
             is ModelState.Ready -> Unit
@@ -122,8 +132,16 @@ class FaceIndexUseCase(
         // incremental query below re-indexes them.
         reconcileDeletedPhotos(clusterer)
 
-        val lastIndexed = if (forceFullRescan) 0L else db.photoDao().lastIndexedDateModified() ?: 0L
-        Timber.i("Index pass start, lastIndexedDateModified=$lastIndexed, forceFullRescan=$forceFullRescan")
+        // A pipeline-version invalidation forces a full re-index this pass
+        // regardless of what the caller asked for — an incremental scan would
+        // otherwise skip every unmodified photo and leave its (already wiped)
+        // faces unindexed indefinitely.
+        val effectiveForceFullRescan = forceFullRescan || pipelineVersionChanged
+        val lastIndexed = if (effectiveForceFullRescan) 0L else db.photoDao().lastIndexedDateModified() ?: 0L
+        Timber.i(
+            "Index pass start, lastIndexedDateModified=$lastIndexed, forceFullRescan=$forceFullRescan, " +
+                "pipelineVersionChanged=$pipelineVersionChanged"
+        )
 
         val sessionId = db.scanSessionDao().insert(
             ScanSessionEntity(
@@ -133,7 +151,7 @@ class FaceIndexUseCase(
                 photosScanned = 0,
                 facesAdded = 0,
                 errorMessage = null,
-                forceFullRescan = forceFullRescan
+                forceFullRescan = effectiveForceFullRescan
             )
         )
 
@@ -285,6 +303,68 @@ class FaceIndexUseCase(
     }
 
     /**
+     * Compares the pipeline version stored at the last successful index
+     * against [FaceRecognitionConfig.EMBEDDING_PIPELINE_VERSION]. A mismatch
+     * — including never having stored one, which is deliberately treated as
+     * stale rather than as already current — means every stored face
+     * embedding was produced by a different, incomparable pipeline (model,
+     * input size, alignment, or normalization). Cosine similarity between an
+     * old and a new embedding is meaningless, so clustering across a mixture
+     * of the two is *worse* than either generation alone, and fails
+     * silently: nothing about a stale BLOB looks wrong, so the symptom is
+     * just "clustering got worse", not a crash or an error.
+     *
+     * On a mismatch this:
+     *  - Deletes every face and cluster: both are entirely derived from the
+     *    embedding, so nothing about them is salvageable across a pipeline
+     *    change. User-assigned cluster names are lost here — unavoidably.
+     *    Clusters are rebuilt from scratch in a vector space with no sound
+     *    correspondence to the old one, so there is no reliable way to match
+     *    an old cluster to its replacement and carry the name across;
+     *    pretending otherwise would just be a different silent-corruption bug.
+     *  - Does **not** touch `albums` or the `export_operations`/`export_items`
+     *    transaction log — those record what was already exported to the
+     *    user's filesystem, not derived clustering state, and deleting them
+     *    would lose real work.
+     *  - Resets every existing photo row's `dateModified` watermark to 0,
+     *    *without* deleting/reinserting the row (so its id is stable and the
+     *    export log's informational `photoId` references stay valid). This is
+     *    necessary, not cosmetic: the outer incremental query in [run] is
+     *    satisfied by forcing a full rescan, but [indexFromDetection] has its
+     *    own per-photo short-circuit — `preExisting.dateModified >=
+     *    photo.dateModified` — that would otherwise skip every photo whose
+     *    underlying file never changed, silently leaving it unindexed even
+     *    though its face row was just deleted above. The sentinel is only
+     *    ever visible transiently: the moment a photo is actually
+     *    reprocessed, [indexFromDetection] overwrites it with the real
+     *    MediaStore value again.
+     *
+     * @return true if a version mismatch was found — the caller must treat
+     * this run as a full re-index regardless of `forceFullRescan`.
+     */
+    internal suspend fun invalidateIfPipelineVersionChanged(): Boolean {
+        val storedVersion = prefs.embeddingPipelineVersion.first()
+        val currentVersion = FaceRecognitionConfig.EMBEDDING_PIPELINE_VERSION
+        if (storedVersion == currentVersion) return false
+
+        var clustersWiped = 0
+        var photosReset = 0
+        db.withTransaction {
+            clustersWiped = db.clusterDao().count()
+            db.faceDao().clear()
+            db.clusterDao().clear()
+            photosReset = db.photoDao().resetReprocessWatermark()
+        }
+
+        prefs.setEmbeddingPipelineVersion(currentVersion)
+        Timber.i(
+            "Embedding pipeline version changed (stored=$storedVersion, current=$currentVersion); " +
+                "invalidated clusters=$clustersWiped, photos=$photosReset; forcing full re-index"
+        )
+        return true
+    }
+
+    /**
      * Stage B: take an already-decoded bitmap + detected faces, embed each
      * face, then persist face rows and assign them to clusters in a single
      * Room transaction so a cancellation can't leave partial state.
@@ -313,7 +393,17 @@ class FaceIndexUseCase(
             emptyList()
         } else {
             faces.mapNotNull { face ->
-                computeEmbedding(bitmap, face.boundingBox)?.let { EmbeddedFace(face, it) }
+                if (!isPoseUsable(face)) {
+                    // A steep profile or heavily rolled face embeds poorly and
+                    // then acts as a bridge between otherwise distinct people —
+                    // one bad face pulls two clusters together and the damage
+                    // cascades through the running centroid. Cheaper to skip it
+                    // than to un-merge later.
+                    Timber.d("Skipping face on pose grounds")
+                    null
+                } else {
+                    computeEmbedding(bitmap, face)?.let { EmbeddedFace(face, it) }
+                }
             }
         }
         val photoArea = bitmap?.let { (it.width * it.height).coerceAtLeast(1).toFloat() }
@@ -410,10 +500,28 @@ class FaceIndexUseCase(
         }
     }
 
-    private fun computeEmbedding(bitmap: Bitmap, bbox: Rect): FloatArray? {
-        val preprocessed = FacePreprocessor.cropAndPreprocess(bitmap, bbox)
+    /**
+     * Aligns to the model's canonical layout where possible, falling back to a
+     * plain bounding-box crop when the detector withheld landmarks. The
+     * fallback is deliberately kept rather than skipping the face: an
+     * unaligned embedding is poor, but dropping the face loses the person
+     * entirely from photos where only one shot exists.
+     */
+    private fun computeEmbedding(bitmap: Bitmap, face: Face): FloatArray? {
+        val preprocessed = FaceAligner.align(bitmap, face)
+            ?: FacePreprocessor.cropAndPreprocess(bitmap, face.boundingBox)
         return embedder.getEmbedding(preprocessed)
     }
+
+    /**
+     * Rejects faces whose head pose is too far from frontal for the model to
+     * embed reliably. The thresholds are deliberately generous — this is meant
+     * to drop clear profiles and sideways heads, not to demand passport
+     * photos.
+     */
+    private fun isPoseUsable(face: Face): Boolean =
+        abs(face.headEulerAngleY) <= MAX_YAW_DEGREES &&
+            abs(face.headEulerAngleZ) <= MAX_ROLL_DEGREES
 
     fun close() {
         if (detectorLazy.isInitialized()) detectorLazy.value.close()
@@ -438,6 +546,19 @@ class FaceIndexUseCase(
     companion object {
         /** Parallelism for stage A (decode + ML Kit detect). */
         private const val DETECT_CONCURRENCY = 2
+
+        /**
+         * Yaw beyond this is a profile shot; the aligner can still place the
+         * points but the model never saw such poses in training, so the
+         * embedding is unreliable.
+         */
+        private const val MAX_YAW_DEGREES = 40f
+
+        /**
+         * Roll beyond this also breaks the left/right ordering the aligner
+         * uses to map landmarks onto the template.
+         */
+        private const val MAX_ROLL_DEGREES = 35f
 
         /**
          * Capacity of the channel between stage A and stage B. Combined with

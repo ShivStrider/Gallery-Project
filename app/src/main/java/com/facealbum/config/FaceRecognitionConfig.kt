@@ -8,7 +8,18 @@ object FaceRecognitionConfig {
     const val MODEL_INPUT_SIZE = 112
 
     /** Output embedding vector size from MobileFaceNet */
-    const val EMBEDDING_SIZE = 512
+    /**
+     * Output dimensionality of the bundled MobileFaceNet model.
+     *
+     * 128, not 512: the sirius-ai MobileFaceNet graph this repo ships emits a
+     * 1 x 128 `embeddings` tensor. Earlier docs here claimed 512, which was
+     * simply wrong — TFLite would have thrown on the output-shape mismatch.
+     * Swapping in a model with a different output width means changing this
+     * constant to match it; nothing persists a fixed width (embeddings are
+     * stored as length-agnostic BLOBs), but all embeddings in one database
+     * must share a width, so a change requires re-scanning the library.
+     */
+    const val EMBEDDING_SIZE = 128
 
     /** Default similarity threshold for face matching (0.0 to 1.0) */
     const val DEFAULT_SIMILARITY_THRESHOLD = 0.6f
@@ -39,4 +50,36 @@ object FaceRecognitionConfig {
 
     /** Hard cap on photos processed per scan batch (prevents runaway memory use) */
     const val SCAN_BATCH_SIZE = 200
+
+    /**
+     * Version of everything upstream of a stored face embedding: the model
+     * file, its input size, face alignment/cropping, pixel normalization, and
+     * channel order. Two embeddings produced under different versions live in
+     * different, mutually incomparable vector spaces — cosine similarity
+     * between them is meaningless, even though nothing about the stored BLOB
+     * looks wrong.
+     *
+     * MUST be incremented whenever any of the above changes upstream of the
+     * stored vector. [com.facealbum.domain.FaceIndexUseCase.run] compares this
+     * against the version persisted in `UserPreferences` at the start of every
+     * pass; a mismatch wipes every stored face and cluster and forces a full
+     * re-index of every photo, because incrementally scanning only new/changed
+     * photos would otherwise leave old- and new-generation vectors mixed in
+     * the same table — which clusters *worse* than either generation alone,
+     * and fails silently (it looks like ordinary bad clustering, not a bug).
+     *
+     * Bumped 1 -> 2 for: faces are now warped onto the ArcFace canonical
+     * template before embedding (previously a raw bounding-box crop), and
+     * input normalization changed from `x/127.5 - 1` to `(x - 127.5)/128`.
+     */
+    const val EMBEDDING_PIPELINE_VERSION = 2
+
+    /**
+     * The implicit pipeline version of every embedding stored before this
+     * versioning scheme existed. Never itself persisted — `UserPreferences`
+     * falls back to this when no version has ever been recorded, so a user
+     * who already scanned before this guard shipped is correctly treated as
+     * stale (not as already current) the first time the app runs with it.
+     */
+    const val LEGACY_EMBEDDING_PIPELINE_VERSION = 1
 }

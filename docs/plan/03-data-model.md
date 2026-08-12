@@ -8,7 +8,7 @@ Database `FaceAlbumDatabase`, version 4 after Phase 6 (v3 shipped + additive `MI
 Purpose: one row per MediaStore image the scanner has seen. PK `id` autogen; unique index `mediaStoreId`. Fields: `mediaStoreId`, `uri`, `displayName`, `dateTaken`, `dateModified`, `processedAt`, `faceCount`. Insert strategy ABORT (never REPLACE — a REPLACE would cascade-delete faces). Retention: cleared by "Delete face data"; rows reconciled against MediaStore on scan (Phase 2: rows whose backing media vanished are removed, changed rows re-indexed). `faceCount=0` rows are written even for undecodable photos so incremental scans advance.
 
 ### faces
-Purpose: one detected face. PK `id`; FK `photoId`→photos CASCADE; FK `clusterId`→clusters SET_NULL; indexes on both FKs. Fields: bbox (4 ints), `embedding` (512×float32 little-endian BLOB, L2-normalized), `quality` (bbox/photo area ratio). Sensitive: the embedding is the biometric-derived payload.
+Purpose: one detected face. PK `id`; FK `photoId`→photos CASCADE; FK `clusterId`→clusters SET_NULL; indexes on both FKs. Fields: bbox (4 ints), `embedding` (float32 little-endian BLOB, L2-normalized; 128 values with the bundled model — the column is length-agnostic, but all rows in one DB must share a width), `quality` (bbox/photo area ratio). Sensitive: the embedding is the biometric-derived payload.
 
 ### clusters
 Purpose: one person group. PK `id`. Fields: `displayName` (null until named), `coverFaceId`, `faceCount`, `centroid` (running-mean BLOB, L2-normalized), timestamps. Reactive UI query: `summariesAtLeast(minSize)`.

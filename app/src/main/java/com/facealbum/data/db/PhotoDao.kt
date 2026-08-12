@@ -61,6 +61,16 @@ interface PhotoDao {
     @Query("SELECT COUNT(*) FROM photos")
     suspend fun count(): Int
 
+    /**
+     * Forces every photo to look un-processed to the incremental scan, in one
+     * statement. The alternative — reading each row and writing it back with
+     * dateModified = 0 — loads the whole table and issues one UPDATE per photo
+     * inside a single transaction, which on a large library is a lot of
+     * allocation and I/O for what is conceptually a one-line reset.
+     */
+    @Query("UPDATE photos SET dateModified = 0")
+    suspend fun resetReprocessWatermark(): Int
+
     @Query("DELETE FROM photos")
     suspend fun clear()
 }

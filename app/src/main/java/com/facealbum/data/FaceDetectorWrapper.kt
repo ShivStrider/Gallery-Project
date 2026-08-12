@@ -19,8 +19,14 @@ class FaceDetectorWrapper(context: Context) {
 
     private val detector: FaceDetector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            // ACCURATE, not FAST: indexing is a one-off background pass, and
+            // detection quality feeds straight into embedding quality. FAST
+            // also gives coarser landmarks, which the aligner depends on.
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+            // Landmarks are required by FaceAligner — without them every face
+            // falls back to an unaligned crop, which is what made distinct
+            // people cluster together.
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
             .setMinFaceSize(FaceRecognitionConfig.MIN_FACE_SIZE)
             .build()

@@ -33,6 +33,7 @@ class UserPreferences private constructor(private val appContext: Context) {
         val MIN_CLUSTER_SIZE = intPreferencesKey("min_cluster_size")
         val THEME_PREFERENCE = stringPreferencesKey("theme_preference")
         val FAVORITE_CLUSTERS = stringSetPreferencesKey("favorite_clusters")
+        val EMBEDDING_PIPELINE_VERSION = intPreferencesKey("embedding_pipeline_version")
     }
 
     val assignThreshold: Flow<Float> = appContext.dataStore.data.map { prefs ->
@@ -66,6 +67,22 @@ class UserPreferences private constructor(private val appContext: Context) {
         prefs[Keys.FAVORITE_CLUSTERS]
             ?.mapNotNullTo(mutableSetOf()) { it.toLongOrNull() }
             ?: emptySet()
+    }
+
+    /**
+     * The embedding-pipeline version as of the last time FaceIndexUseCase
+     * invalidated (or confirmed current) its derived data. Absence — a user
+     * who scanned before this key existed — deliberately falls back to
+     * [FaceRecognitionConfig.LEGACY_EMBEDDING_PIPELINE_VERSION] rather than to
+     * the current version, so a never-recorded version reads as stale and
+     * triggers the same invalidation a real version bump would.
+     */
+    val embeddingPipelineVersion: Flow<Int> = appContext.dataStore.data.map { prefs ->
+        prefs[Keys.EMBEDDING_PIPELINE_VERSION] ?: FaceRecognitionConfig.LEGACY_EMBEDDING_PIPELINE_VERSION
+    }
+
+    suspend fun setEmbeddingPipelineVersion(value: Int) {
+        appContext.dataStore.edit { it[Keys.EMBEDDING_PIPELINE_VERSION] = value }
     }
 
     suspend fun setClusterFavorite(clusterId: Long, favorite: Boolean) {

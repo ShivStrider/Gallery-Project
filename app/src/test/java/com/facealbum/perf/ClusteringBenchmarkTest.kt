@@ -52,21 +52,21 @@ import kotlin.time.Duration.Companion.minutes
  * implementation could never approach even on a slow runner — the point is
  * to catch a genuine O(n^2)-class blowup, not to enforce the target itself.
  *
- * ## NOTE on a suspected residual issue in `mergeClose`
- * While instrumenting this test we noticed `mergeClose`'s *comparison* loop
- * (as opposed to its *DB-read* count, which this test protects) still
- * restarts its pairwise scan from index 0 after every single merge — see the
- * `while (changed) { ... val all = clusters.values.sortedByDescending { ... } }`
- * structure in `FaceClusterer.kt`. That is a real O(merges * clusters)
- * comparison cost distinct from the DB-read cost this test guards, and it is
- * why the merge scenario below deliberately uses a bounded number of
- * pre-merge clusters (~300) rather than one singleton cluster per face: a
- * 5 000-singleton scenario would mean ~4 800 merges, each restarting a
- * `sortedByDescending` + linear scan over a shrinking-but-still-large cluster
- * list, which risks costing far more than the documented "~1s at 200
- * clusters" target and blowing this test's own runtime budget. This restart
- * behavior is left unfixed per the task scope (tests/docs only) and is
- * called out again in the report below the plan doc.
+ * ## NOTE on the former restart behaviour in `mergeClose` (fixed, P4.2)
+ * `mergeClose`'s *comparison* loop used to restart its pairwise scan from
+ * index 0 (with a fresh `sortedByDescending`) after every single merge,
+ * making comparison cost scale with `merges * clusters` rather than with
+ * `clusters` alone — see the historical `while (changed) { ... } outer@ for
+ * ... break@outer` shape once here and in `FaceClusterer.kt`. It has been
+ * replaced with a shape that sorts once per pass, then walks outer-to-inner
+ * absorbing every later still-alive cluster within threshold (tracked via a
+ * per-pass dead set) before repeating full passes only while the last one
+ * produced a merge — cost is now `passes * clusters^2` comparisons, with
+ * passes typically small (2-3) and, notably, independent of merge count.
+ * The merge scenario below still deliberately uses a bounded number of
+ * pre-merge clusters (~300) rather than one singleton cluster per face,
+ * since this test's job is measuring/guarding shape at a fixed, known scale
+ * rather than proving arbitrary scale-out.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -183,6 +183,18 @@ class ClusteringBenchmarkTest {
 
         override fun summariesAtLeast(minSize: Int): Flow<List<ClusterSummary>> =
             delegate.summariesAtLeast(minSize)
+
+        // Note for anyone adding to ClusterDao: this fake implements the whole
+        // interface by hand, so a new DAO method breaks this file's
+        // compilation — which takes the entire unit-test source set with it,
+        // producing no test XML at all rather than a localised failure.
+        override fun summariesBelow(minSize: Int): Flow<List<ClusterSummary>> =
+            delegate.summariesBelow(minSize)
+
+        override fun reviewNeededFaceCount(minSize: Int): Flow<Int> =
+            delegate.reviewNeededFaceCount(minSize)
+
+        override suspend fun count(): Int = delegate.count()
 
         override suspend fun delete(id: Long) = delegate.delete(id)
 
@@ -309,12 +321,12 @@ class ClusteringBenchmarkTest {
             // pass), not zero.
             //
             // Bounded at 150 identities x 2 variants (300 pre-merge clusters)
-            // rather than one cluster per face at full 5k scale: mergeClose's
-            // comparison loop restarts its scan from index 0 after every
-            // merge (see class doc), so an unbounded pre-merge cluster count
-            // risks a very slow test under the current implementation. 300 is
-            // enough to exercise many merges in one call while staying well
-            // inside the runtime budget.
+            // rather than one cluster per face at full 5k scale: this test's
+            // job is measuring/guarding merge behaviour at a fixed, known
+            // scale (matching the "~300 pre-merge clusters" figure recorded
+            // in docs/plan/07-performance-plan.md), not proving scale-out to
+            // 5k. 300 is enough to exercise many merges in one call while
+            // staying well inside the runtime budget.
             val identities = 150
             val variantsPerIdentity = 2
             val splitter = FaceClusterer(
@@ -366,10 +378,12 @@ class ClusteringBenchmarkTest {
                 "[mergeClose] preMergeClusters=$preMergeClusters postMergeClusters=$postMergeClusters " +
                     "elapsedMs=$elapsedMs"
             )
-            // Loose sanity ceiling only (~10x the documented "<=1s at 200
-            // clusters" target). Wall-clock is not the regression signal -
-            // allCalls above is.
-            assertThat(elapsedMs).isLessThan(10_000L)
+            // Loose sanity ceiling only (~5x the documented "<=1s at 200
+            // clusters" target, tightened from 10s post-P4.2 restart fix -
+            // see class doc). Wall-clock is not the regression signal -
+            // allCalls above is. Kept loose enough to absorb a slow/shared
+            // CI runner rather than to enforce the target number itself.
+            assertThat(elapsedMs).isLessThan(5_000L)
         } finally {
             db.close()
         }

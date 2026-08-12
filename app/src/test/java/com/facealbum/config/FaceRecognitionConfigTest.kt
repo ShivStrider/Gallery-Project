@@ -9,7 +9,7 @@ class FaceRecognitionConfigTest {
     fun `embedding size matches MobileFaceNet output`() {
         // 512-D is the load-bearing contract with mobile_face_net.tflite — a
         // mismatch would silently corrupt every embedding we ever computed.
-        assertThat(FaceRecognitionConfig.EMBEDDING_SIZE).isEqualTo(512)
+        assertThat(FaceRecognitionConfig.EMBEDDING_SIZE).isEqualTo(128)
     }
 
     @Test

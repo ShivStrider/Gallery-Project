@@ -14,7 +14,7 @@ edit-compile-run cycle.
 | Android SDK Platform 35 + Build-Tools 35 | Installed via Android Studio's SDK Manager | Matches `compileSdk = 35` / `targetSdk = 35` in `app/build.gradle.kts`. |
 | JDK 17 (bundled with Android Studio) | Already there if you installed AS | Required by AGP 8.2. |
 | A phone on Android 8.0 (API 26) or newer | Your pocket | App's min SDK. |
-| **A MobileFaceNet `.tflite` weight** | See §3 | The face-embedding brain. App will *build* without it but won't *work*. |
+| ~~A MobileFaceNet `.tflite` weight~~ | **Now bundled** — see §3 | The face-embedding brain. Committed to the repo; nothing to source. |
 
 Emulators technically work but are slow; the index loop touches MediaStore, ML
 Kit, and TFLite, all of which want real hardware.
@@ -47,34 +47,46 @@ straight to the model step below.
 
 ---
 
-## 3. Drop in the TFLite model — **the critical step**
+## 3. The TFLite model — **now bundled, nothing to do**
 
-The app expects this file:
+The model ships with the repo:
 
 ```
-app/src/main/assets/mobile_face_net.tflite
+app/src/main/assets/mobile_face_net.tflite     # 5,117,184 bytes
 ```
 
-with this contract (see `FaceRecognitionConfig.kt`):
+Its SHA-256 is pinned in `gradle.properties`, so `verifyFaceModelPresent`
+fails the build if it is ever corrupted or swapped. Full provenance, license,
+and the exact conversion command are in
+[`app/src/main/assets/README_MODEL.txt`](app/src/main/assets/README_MODEL.txt).
 
-- **Input**: `1 × 112 × 112 × 3` float32, normalized to `[-1, 1]`
-- **Output**: `1 × 512` float32
+Contract (see `FaceRecognitionConfig.kt`):
 
-If your model uses a different input size or normalization, the app builds and
-indexing runs without crashing — clusters just come out as noise. So the
-contract matters.
+- **Input**: `1 × 112 × 112 × 3` float32, RGB, normalized to `[-0.99609375, 0.99609375]` via `(x - 127.5) / 128`
+- **Output**: `1 × 128` float32, already L2-normalized by the graph
 
-### Candidate models
+> **Corrections.** Earlier revisions of this file said the output was `1 × 512`
+> and that the conversion input tensor was named `input`. Both were wrong: the
+> sirius-ai graph emits **128** values from a placeholder named **`img_inputs`**,
+> and `from_frozen_graph` is a TF1 entry point that lives at
+> `tf.compat.v1.lite.TFLiteConverter` on TensorFlow 2. `EMBEDDING_SIZE` has been
+> corrected to 128 to match the model that actually ships.
 
-I haven't shipped a model with the repo because of license + binary-history
-concerns. Pick one of the routes below.
+Swapping in a different model means updating `FaceRecognitionConfig.kt` to its
+input size and output width, re-pinning `faceModelSha256`, and re-scanning the
+library — all embeddings in one database must share a width.
+
+### Candidate models (only if you want to replace the bundled one)
+
+The routes below are kept for anyone substituting a different model.
 
 **Option 3a — sirius-ai MobileFaceNet (Apache-2.0, the canonical match)**
 
 Repo: https://github.com/sirius-ai/MobileFaceNet_TF
 
 This is the **license-clean** source whose architecture matches our contract
-exactly (112×112 in, 512-D out, normalized to [-1, 1]). Catch: the repo ships
+(112×112 in, `(x - 127.5) / 128`) — though it emits 128-D, not 512-D as
+this file used to claim. This is the model now bundled. Catch: the repo ships
 a TensorFlow frozen graph (`.pb`), not a `.tflite`. You'll need to convert it
 once:
 
@@ -92,9 +104,9 @@ import tensorflow as tf
 # ships. (If you are on TF 1.15, drop the `.compat.v1`.)
 converter = tf.compat.v1.lite.TFLiteConverter.from_frozen_graph(
     graph_def_file="MobileFaceNet_9925_9680.pb",
-    input_arrays=["input"],
+    input_arrays=["img_inputs"],
     output_arrays=["embeddings"],
-    input_shapes={"input": [1, 112, 112, 3]},
+    input_shapes={"img_inputs": [1, 112, 112, 3]},
 )
 open("mobile_face_net.tflite", "wb").write(converter.convert())
 PY
@@ -138,31 +150,31 @@ ls -l app/src/main/assets/mobile_face_net.tflite
 # Should be ~4–6 MB. If it's a few KB, your download was an HTML redirect, not the binary.
 ```
 
-### Optional: pin the model checksum
+### The model checksum is already pinned
 
-`app/build.gradle.kts`'s `verifyFaceModelPresent` task (gates every release
-build) will also verify the asset's SHA-256 if you tell it what to expect.
-Nothing is pinned by default — this repo doesn't ship the model, so there's no
-real checksum to commit. Once you've sourced and verified your own copy:
+`app/build.gradle.kts`'s `verifyFaceModelPresent` task (which gates every
+release build) verifies the asset's SHA-256 against the `faceModelSha256`
+property, already set in `gradle.properties` to the digest of the committed
+model:
+
+```
+72b5c2921d4fd4be3743dae54451ef2f0c13924ae9c048926152176383d657bf
+```
+
+If you replace the model, recompute and re-pin it:
 
 ```bash
 sha256sum app/src/main/assets/mobile_face_net.tflite
 ```
 
-Then either add it to `gradle.properties`:
-
-```properties
-faceModelSha256=<the hex digest from above>
-```
-
-or pass it per-build without touching the file:
+You can also override per build without editing the file:
 
 ```bash
 ./gradlew bundleRelease -PfaceModelSha256=<the hex digest>
 ```
 
-With it unset, `verifyFaceModelPresent` still passes (existence-only check,
-today's behaviour) but logs a warning that integrity isn't verified.
+Emptying the property downgrades the task to an existence-only check that
+passes with an integrity-not-verified warning.
 
 ---
 
@@ -191,28 +203,58 @@ If the build fails, see §7 *Troubleshooting*.
 
 ## 5. First-run checklist
 
+> Nobody has run this build on real hardware yet. Everything below is derived
+> from the code, not from a device session — so treat it as what *should*
+> happen, and see §5b for what to do when it doesn't.
+
 1. **Open FaceAlbum** on your phone.
-2. **Welcome screen** → tap *Grant Access*. On Android 13+ pick "Allow all" so
-   the indexer can see every photo (not just a subset).
-3. **People screen** appears. The first scan kicks off automatically — you'll
-   see a foreground notification "Finding faces in your photos" and a progress
-   banner in the app showing `Scanning 12 / 4382 · 7 faces`.
-4. After a few minutes (depends on library size + device CPU), the first
-   cluster tiles appear. By default a cluster needs ≥ 3 faces to show up —
-   lower this in *Settings → Minimum cluster size* if you want to see
-   singletons too.
-5. **Tap a tile** → cluster detail. Tap the ✎ next to the placeholder name to
-   rename ("Mum", "Sarah", whatever).
-6. **Tap *Export album*** in the detail screen → enter a name → confirm.
-   Photos land in `Pictures/FaceAlbums/<name>/` and are immediately visible in
-   Google Photos and Files.
-7. **Merge two tiles that are the same person**: open the more-faces tile,
-   tap *Merge with…*, pick the other one. The smaller cluster folds in.
+2. **Welcome screen** → tap *Grant Access*. On Android 13+ pick **"Allow all"**.
+   Picking "Select photos…" is supported, but then the app can only ever see
+   the subset you picked, and anything outside it is treated as deleted.
+3. **People screen** appears, empty, with a **Scan photos** button. **The scan
+   does not start on its own** — you have to tap it. (`MainViewModel.startIndex`
+   is only called from that button; nothing auto-triggers it.) On Android 13+
+   you'll be asked for notification permission at this point; declining is fine
+   and the scan still runs, you just lose the progress notification.
+4. While scanning you get a foreground notification ("Finding faces in your
+   photos") and an in-app banner reading `Scanning 12 of 4382 · 7 faces found`.
+5. Tiles appear as clusters reach the minimum group size — **3 by default**, so
+   a person in one or two photos will not appear at all. Lower it in
+   *Settings → Grouping → Minimum group size* if the grid looks emptier than
+   expected.
+6. **Tap a tile** → person detail. The action row has **Rename**, **Merge**,
+   **Export album**, and a favourite toggle.
+7. **Export album** does *not* immediately ask for a name. It first builds a
+   plan, then opens a **"Review before exporting"** sheet showing the exact
+   file count, the source folders, the destination, a size estimate, and a
+   warning for photos that also contain someone else. You choose the album name
+   and the mode there, then confirm. **Only Copy is available** — Move is
+   implemented but disabled behind `ExportFeature.MOVE_ENABLED` pending
+   on-device verification, so the Move option will not be offered.
+8. Copies land in `Pictures/FaceAlbums/<name>/` and the completion screen
+   offers **Undo**, which removes the copies it made.
+9. **Merge two tiles of the same person**: open either, tap *Merge*, pick the
+   other. Note the confirmation says this can't be undone, and it means it —
+   there is no stored record of a merge to reverse.
 
-The scan progress banner disappears when indexing finishes. Re-running is
-incremental — only new or modified photos get processed.
+Re-running a scan is incremental: only new or modified photos are processed.
 
----
+## 5b. What to watch for, and what "wrong" looks like
+
+These are the parts that have never been exercised, ranked by how likely they
+are to bite:
+
+| What to check | Looks right | Looks wrong → likely cause |
+|---|---|---|
+| **Grouping quality** — the big unknown | Same person's photos land together; different people stay apart | Everything in one giant group, or every photo its own group → the model's accuracy has never been measured (see `docs/release/known-limitations.md`). Try *Settings → Grouping strictness* before assuming a bug. |
+| First scan completes | Banner counts up and finishes | Stalls at 0 → model failed to load; the People screen shows an error banner rather than crashing |
+| Memory on a large library | Scan runs to completion | `OutOfMemoryError` → lower `MAX_BITMAP_DIMENSION` from 1024 |
+| Backgrounding mid-scan | Resumes or continues | Silently stops → foreground-service/WorkManager issue worth reporting |
+| Export of a large album | Progress notification, then "Album ready" | Partial album → check the completion screen's per-state tallies |
+
+Worth knowing: grouping runs on **128-dimensional** embeddings from the bundled
+MobileFaceNet. If you swap the model for one of a different width, every
+existing embedding becomes incomparable and you must re-scan from scratch.
 
 ## 6. Verifying it actually works end-to-end
 
@@ -220,7 +262,7 @@ Smoke test (real device, ~5 minutes):
 
 | Step | Expected |
 |---|---|
-| Grant photo permission | Foreground notification shows up; banner shows progress climbing. |
+| Grant photo permission, then tap **Scan photos** | Foreground notification shows up; banner shows progress climbing. |
 | After ~100 photos scanned | At least one cluster with several faces of the same person; clearly different people stay separate. |
 | Rename a cluster, kill app, re-open | Name is still there. |
 | Export → look in Google Photos | New album `FaceAlbums/<Name>/` containing only that person's photos. |
@@ -228,8 +270,10 @@ Smoke test (real device, ~5 minutes):
 | Turn airplane mode on for the whole flow | Everything still works; no crash, no missing UI. |
 
 If any of these fail, the most likely culprits are:
-- Model file missing → see §3.
-- Model contract mismatch → clusters look random.
+- Clusters look random → the bundled model's accuracy is unverified; this is
+  the single most likely real defect, not a misconfiguration.
+- Model file corrupted → `verifyFaceModelPresent` catches this on release
+  builds via the pinned SHA-256, but debug builds don't run that gate.
 - Photo permission scoped to a subset → reset photo permission in
   Settings → Apps → FaceAlbum → Permissions → "Allow all".
 
@@ -249,8 +293,9 @@ Then in the app, *Settings → Re-scan entire library*.
 **Indexing runs but every cluster looks wrong / mixes people.**
 Model contract mismatch. Confirm:
 - file is at `app/src/main/assets/mobile_face_net.tflite`
-- input is 112×112×3, normalized to [-1, 1]
-- output is exactly 512 floats
+- input is 112×112×3, normalized by `(x - 127.5) / 128` — the range is
+  ±0.99609375, not ±1
+- output width matches `FaceRecognitionConfig.EMBEDDING_SIZE` (128 for the bundled model)
 Or update `FaceRecognitionConfig.kt` + `FacePreprocessor.kt` to match what your
 model actually wants.
 

@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [ main ]
 
+# A push to a branch that has an open PR fires this workflow twice on the very
+# same commit — once for `push`, once for `pull_request`. Both jobs then race
+# on the shared Gradle cache, and one can die seconds in having produced no
+# compiler output at all, putting a spurious red on the PR while the identical
+# commit passes in the sibling run. That happened on ce292a1.
+#
+# Grouping by commit SHA collapses both events into a single run: the two
+# events yield the same SHA, so the later one supersedes the earlier instead of
+# competing with it. Also halves CI minutes on every push to a branch with a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   test-and-lint:
     name: Test & Lint
@@ -25,6 +38,19 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Fail fast, and legibly, when the runner's Java toolchain is not what
+      # setup-java claims. Observed on 4994936: setup-java reported success in
+      # 1s (versus ~20s normally), JAVA_HOME pointed at a JDK build no green
+      # run had used, and `./gradlew test` then died in 1s having produced no
+      # output at all — which surfaced only as "no test XML", indistinguishable
+      # from a compile error. Printing the toolchain first turns that into an
+      # obvious environment failure instead of a mystery.
+      - name: Verify toolchain
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          ./gradlew --version
+
       # Logs must never carry media identifiers (photo URIs, album/person
       # names, file names) — only stable numeric IDs and enum names. This
       # guard greps every Timber call for the usual leak patterns.
@@ -35,8 +61,16 @@ jobs:
             exit 1
           fi
 
+      # Tee'd to a file so the final Result summary step can echo the compiler
+      # errors back out at the end of the job. A compile failure produces no
+      # test XML at all, and the errors themselves land hundreds of lines deep
+      # in a log the API only serves from the tail — which made the last two
+      # compile breaks far more expensive to diagnose than to fix.
+      # pipefail is required or tee would mask gradle's exit status.
       - name: Run unit tests
-        run: ./gradlew test --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew test --stacktrace 2>&1 | tee /tmp/gradle-test.log
 
       # Always print per-suite counts. A green conclusion only proves nothing
       # *ran and failed* — a suite that silently stops running (a filtered
@@ -146,3 +180,42 @@ jobs:
           name: test-results
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+      # Repeated verbatim as the LAST step on purpose. The same summary runs
+      # earlier, right after the tests, but the lint and assemble output that
+      # follows buries it hundreds of lines deep — and the GitHub API only
+      # exposes job logs from the tail, while the raw log blob sits behind a
+      # host the agent proxy blocks. Printing it again at the very end means a
+      # short tail always reaches the numbers.
+      - name: Result summary (repeated at end of job for log-tail access)
+        if: always()
+        run: |
+          echo "=== Per-suite test counts (deduplicated across variants) ==="
+          find app/build/test-results -name 'TEST-*.xml' 2>/dev/null \
+            | xargs -r sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1 \2 \3 \4 \5/p' \
+            | sort -u > /tmp/suite-counts-final.txt
+          awk '{print $1": tests="$2" skipped="$3" failures="$4" errors="$5}' /tmp/suite-counts-final.txt
+          echo "=== Totals ==="
+          awk '{t+=$2; s+=$3; f+=$4; e+=$5} END {print "suites="NR" tests="t" skipped="s" failures="f" errors="e}' \
+            /tmp/suite-counts-final.txt
+          echo "=== Benchmark output ==="
+          find app/build/test-results -name 'TEST-com.facealbum.perf.*.xml' 2>/dev/null \
+            | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
+            | sort -u \
+            || echo "No benchmark output found."
+
+          # suites=0 means the tests never ran — almost always a compile error,
+          # not a test failure. Say so loudly and surface the actual compiler
+          # errors here at the end of the job, where a short log tail reaches
+          # them, instead of leaving them buried in the gradle step above.
+          if [ ! -s /tmp/suite-counts-final.txt ]; then
+            echo "=== NO TEST XML PRODUCED — the tests never ran ==="
+            echo "This is the compile-error signature, not a test failure."
+            if [ -f /tmp/gradle-test.log ]; then
+              echo "--- compiler / gradle errors ---"
+              grep -E '^e: |FAILURE: |What went wrong|Execution failed for task|Caused by: ' \
+                /tmp/gradle-test.log | head -60
+            else
+              echo "(no gradle log captured)"
+            fi
+          fi

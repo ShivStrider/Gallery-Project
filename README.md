@@ -48,7 +48,7 @@ For each photo (inside db.withTransaction):
     FaceDetectorWrapper.detectAllFaces (ML Kit, fast mode)
     For each face:
         FacePreprocessor (margin crop + 112×112 + normalize to [-1, 1])
-        FaceEmbedder.getEmbedding (TFLite → 512-D L2-normalized vector)
+        FaceEmbedder.getEmbedding (TFLite → 128-D L2-normalized vector)
         FaceClusterer.assign:
             best cluster by cosine similarity ≥ assign threshold → join + update centroid
             else → open a new singleton cluster
@@ -137,7 +137,7 @@ app/src/main/assets/mobile_face_net.tflite
 
 **Contract** (matches `FaceRecognitionConfig` + `FaceEmbedder`):
 - Input: `1 × 112 × 112 × 3` float32, normalized to `[-1, 1]`
-- Output: `1 × 512` float32 (L2-normalized inside the app)
+- Output: `1 × 128` float32 (L2-normalized by the graph, and again in the app)
 
 **Recommended (license-clean) sources:**
 - [`sirius-ai/MobileFaceNet_TF`](https://github.com/sirius-ai/MobileFaceNet_TF) — MIT, exports directly to `.tflite`
@@ -181,7 +181,7 @@ Or just hit Run in Android Studio.
 | Table | Purpose |
 |---|---|
 | `photos` | One row per inspected photo (MediaStore id, dateModified, face count). Used for incremental scans. |
-| `faces` | One row per detected face — bounding box, embedding (BLOB, 512 floats little-endian), quality, FK to cluster. |
+| `faces` | One row per detected face — bounding box, embedding (BLOB, float32 little-endian; 128 values with the bundled model), quality, FK to cluster. |
 | `clusters` | One row per person — display name (nullable until tagged), running-mean centroid, cover face, face count. |
 | `albums` | History of exports — which cluster was exported to which path, when, how many photos. |
 | `export_operations` / `export_items` | Per-file transaction log for the export pipeline (source path, filename, per-item outcome) — enables resume/verify/undo and is cleared by Settings → "Delete face data" along with `photos`/`faces`/`clusters`. |

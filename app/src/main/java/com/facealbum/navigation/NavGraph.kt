@@ -42,6 +42,7 @@ import com.facealbum.ui.screens.ClusterDetailScreen
 import com.facealbum.ui.screens.ExportCompleteScreen
 import com.facealbum.ui.screens.ImageViewerScreen
 import com.facealbum.ui.screens.PeopleScreen
+import com.facealbum.ui.screens.ReviewNeededScreen
 import com.facealbum.ui.screens.SettingsScreen
 import com.facealbum.ui.screens.WelcomeScreen
 import com.facealbum.ui.theme.Spacing
@@ -62,6 +63,7 @@ sealed class Screen(val route: String) {
     }
     object Settings : Screen("settings")
     object ExportComplete : Screen("export_complete")
+    object ReviewNeeded : Screen("review_needed")
 }
 
 @Composable
@@ -72,6 +74,8 @@ fun NavGraph(
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
 ) {
     val clusters by viewModel.clusters.collectAsState()
+    val reviewNeededClusters by viewModel.reviewNeededClusters.collectAsState()
+    val reviewNeededFaceCount by viewModel.reviewNeededFaceCount.collectAsState()
     val indexProgress by viewModel.indexProgress.collectAsState()
     val selectedCluster by viewModel.selectedCluster.collectAsState()
     val minClusterSize by viewModel.minClusterSize.collectAsState()
@@ -162,7 +166,9 @@ fun NavGraph(
                     },
                     onScanNow = { viewModel.startIndex(forceFullRescan = false) },
                     onOpenSettings = { navController.navigate(Screen.Settings.route) },
-                    limitedAccess = rememberHasPartialPhotoAccess()
+                    limitedAccess = rememberHasPartialPhotoAccess(),
+                    reviewNeededFaceCount = reviewNeededFaceCount,
+                    onReviewNeededClick = { navController.navigate(Screen.ReviewNeeded.route) }
                 )
 
                 // The delete-consent prompt must run in the foreground and can be
@@ -189,6 +195,17 @@ fun NavGraph(
                     )
                 }
             }
+        }
+
+        composable(Screen.ReviewNeeded.route) {
+            ReviewNeededScreen(
+                clusters = reviewNeededClusters,
+                onClusterClick = { id ->
+                    viewModel.loadCluster(id)
+                    navController.navigate(Screen.ClusterDetail.build(id))
+                },
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(

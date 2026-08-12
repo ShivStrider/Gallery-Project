@@ -37,27 +37,26 @@ versions is rejected before any file is touched
 the `snack_move_unsupported` string). This is independent of the
 `MOVE_ENABLED` flag above — both gates must pass before Move can run.
 
-## The face-embedding model isn't in the repo
+## Recognition accuracy is unmeasured
 
-`app/src/main/assets/` ships only a placeholder (`README_MODEL.txt`); the real
-`mobile_face_net.tflite` (~5 MB, MobileFaceNet weights) is not committed, for
-licensing and binary-history reasons. Two separate consequences:
+The face-embedding model **is** bundled (`app/src/main/assets/mobile_face_net.tflite`,
+5,117,184 bytes, Apache-2.0 from sirius-ai/MobileFaceNet_TF, SHA-256 pinned in
+`gradle.properties`). Provenance and the exact conversion command are in
+`app/src/main/assets/README_MODEL.txt`. Release builds no longer fail for a
+missing asset, and debug builds can index.
 
-- **Release builds refuse to build without it.** `verifyFaceModelPresent` in
-  `app/build.gradle.kts` is a dependency of `assembleRelease` / `bundleRelease`
-  / `packageRelease` and fails the build if the asset file is missing. This is
-  by design, not a bug — see `INSTALL.md` §3 for how to source, verify, and
-  drop in the model.
-- **Debug builds build fine but can't index.** `FaceEmbedder` sets
-  `ModelState.Failed` when the interpreter fails to load, and
-  `FaceIndexUseCase.run()` throws `ModelNotReadyException` immediately (before
-  scanning anything) when that happens.
+What has *not* been established is how well it groups. The converted model was
+checked for input/output shape, dtype, finiteness, determinism, and unit-norm
+output — not for accuracy. No benchmark was run against a labelled face
+dataset, and at the time of writing the model has never processed a real
+photograph, only synthetic tensors. Treat grouping quality on a real library as
+unknown until someone runs a scan and looks at the result.
 
-Optionally, once you have a real model file, its SHA-256 can be pinned via the
-`faceModelSha256` Gradle property so `verifyFaceModelPresent` also checks
-integrity, not just presence — see `INSTALL.md`. This repo's committed default
-for that property is empty, since there is no real checksum to pin without the
-asset.
+Related: the model emits **128-dimensional** embeddings, not the 512 that
+earlier documentation in this repo claimed. `FaceRecognitionConfig.EMBEDDING_SIZE`
+was corrected to 128 to match. Substituting a model of a different width means
+changing that constant and re-scanning the whole library — embeddings of mixed
+widths cannot be compared, and nothing detects such a mix at runtime.
 
 ## Grouping is probabilistic, not exact
 

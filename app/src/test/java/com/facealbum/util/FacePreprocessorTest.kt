@@ -12,10 +12,12 @@ import java.util.Random
 
 /**
  * Pins down the FaceNet preprocessing pipeline: cropping/margin/clamping in
- * [FacePreprocessor.cropAndPreprocess] and the [-1, 1] normalization in
- * [FacePreprocessor.bitmapToFloatArray]. A silent bug here corrupts every
- * embedding, so the properties that matter for recognition are checked
- * directly rather than just "doesn't throw".
+ * [FacePreprocessor.cropAndPreprocess] and the `(x - 127.5) * 0.0078125`
+ * normalization in [FacePreprocessor.bitmapToFloatArray], whose true range is
+ * [-0.99609375, 0.99609375] (128, not 127.5, is the divisor - see the
+ * bitmapToFloatArray tests below for why that boundary matters). A silent bug
+ * here corrupts every embedding, so the properties that matter for
+ * recognition are checked directly rather than just "doesn't throw".
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -108,7 +110,12 @@ class FacePreprocessorTest {
     }
 
     @Test
-    fun `bitmapToFloatArray keeps every value within -1 and 1`() {
+    fun `bitmapToFloatArray keeps every value within the exact normalized bounds`() {
+        // Formula from source: (channel - 127.5f) * 0.0078125f (i.e. / 128, not / 127.5),
+        // so the true range is +-(127.5 * 0.0078125) = +-0.99609375, strictly inside
+        // +-1. Asserting the tight bound (rather than the old +-1 bound, which the new
+        // formula also happens to satisfy) means a regression back to the old
+        // `x / 127.5f - 1f` formula -- which does hit exactly -1f/1f -- fails this test.
         val bitmap = Bitmap.createBitmap(112, 112, Bitmap.Config.ARGB_8888)
         val rand = Random(7L)
         for (y in 0 until 112) {
@@ -120,16 +127,16 @@ class FacePreprocessorTest {
         val result = FacePreprocessor.bitmapToFloatArray(bitmap)
 
         for (value in result) {
-            assertThat(value).isAtLeast(-1f)
-            assertThat(value).isAtMost(1f)
+            assertThat(value).isAtLeast(-0.99609375f)
+            assertThat(value).isAtMost(0.99609375f)
         }
     }
 
     @Test
-    fun `bitmapToFloatArray maps black to exactly -1 and white to exactly 1`() {
-        // Formula from source: ((channel and 0xFF) / 127.5f) - 1f
-        // channel 0   -> (0 / 127.5) - 1     = -1
-        // channel 255 -> (255 / 127.5) - 1   =  1
+    fun `bitmapToFloatArray maps black and white to the exact normalized bounds`() {
+        // Formula from source: (channel - 127.5f) * 0.0078125f
+        // channel 0   -> (0 - 127.5) * 0.0078125   = -0.99609375
+        // channel 255 -> (255 - 127.5) * 0.0078125 =  0.99609375
         val black = solidBitmap(112, 112, Color.BLACK)
         val white = solidBitmap(112, 112, Color.WHITE)
 
@@ -137,21 +144,21 @@ class FacePreprocessorTest {
         val whiteResult = FacePreprocessor.bitmapToFloatArray(white)
 
         for (value in blackResult) {
-            assertThat(value).isWithin(1e-5f).of(-1f)
+            assertThat(value).isWithin(1e-5f).of(-0.99609375f)
         }
         for (value in whiteResult) {
-            assertThat(value).isWithin(1e-5f).of(1f)
+            assertThat(value).isWithin(1e-5f).of(0.99609375f)
         }
     }
 
     @Test
     fun `bitmapToFloatArray normalizes a solid colour to the exact formula value`() {
-        // Formula from source: ((channel and 0xFF) / 127.5f) - 1f, applied per R,G,B.
+        // Formula from source: ((channel and 0xFF) - 127.5f) * 0.0078125f, applied per R,G,B.
         val (r, g, b) = Triple(200, 100, 50)
         val bitmap = solidBitmap(112, 112, Color.rgb(r, g, b))
-        val expectedR = (r / 127.5f) - 1f
-        val expectedG = (g / 127.5f) - 1f
-        val expectedB = (b / 127.5f) - 1f
+        val expectedR = (r - 127.5f) * 0.0078125f
+        val expectedG = (g - 127.5f) * 0.0078125f
+        val expectedB = (b - 127.5f) * 0.0078125f
 
         val result = FacePreprocessor.bitmapToFloatArray(bitmap)
 

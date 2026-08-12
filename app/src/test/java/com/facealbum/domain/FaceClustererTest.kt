@@ -94,6 +94,112 @@ class FaceClustererTest {
     }
 
     @Test
+    fun `mergeClose lets the larger cluster absorb the smaller, keeping its id and name`() = runTest {
+        // Build a 3-face cluster A from near-duplicate embeddings.
+        val faceA1 = insertFace(unitVec(seed = 1, jitter = 0f))
+        val faceA2 = insertFace(unitVec(seed = 1, jitter = 0.005f))
+        val faceA3 = insertFace(unitVec(seed = 1, jitter = -0.005f))
+        val cA = clusterer.assign(faceA1, unitVec(seed = 1, jitter = 0f), 0.1f)
+        clusterer.assign(faceA2, unitVec(seed = 1, jitter = 0.005f), 0.1f)
+        clusterer.assign(faceA3, unitVec(seed = 1, jitter = -0.005f), 0.1f)
+        assertThat(db.clusterDao().byId(cA)!!.faceCount).isEqualTo(3)
+
+        // A single-face cluster B, close enough to merge (>0.75) but forced into
+        // its own cluster via a strict assign threshold, same idiom as the
+        // existing near-duplicate merge test.
+        val faceB = insertFace(unitVec(seed = 1, jitter = 0.02f))
+        val splitClusterer = FaceClusterer(
+            clusterDao = db.clusterDao(),
+            faceDao = db.faceDao(),
+            assignThreshold = 0.9999f,
+            mergeThreshold = 0.75f,
+            now = { 0L }
+        )
+        val cB = splitClusterer.assign(faceB, unitVec(seed = 1, jitter = 0.02f), 0.1f)
+        assertThat(cA).isNotEqualTo(cB)
+        assertThat(db.clusterDao().all()).hasSize(2)
+
+        db.clusterDao().rename(cA, "Alice", now = 0L)
+
+        clusterer.mergeClose()
+
+        val remaining = db.clusterDao().all()
+        assertThat(remaining).hasSize(1)
+        // The larger cluster (3 faces) must survive, not the smaller (1 face) -
+        // this is user-visible: it decides which id and display name survive.
+        assertThat(remaining[0].id).isEqualTo(cA)
+        assertThat(remaining[0].displayName).isEqualTo("Alice")
+        assertThat(remaining[0].faceCount).isEqualTo(4)
+        assertThat(db.clusterDao().byId(cB)).isNull()
+    }
+
+    @Test
+    fun `mergeClose converges across passes when a merge newly unlocks a third cluster`() = runTest {
+        // Three clusters A, B, C constructed so that neither B nor C is close
+        // enough to A to merge directly (cos = 0.72 < 0.75 threshold), but B
+        // and C are close enough to merge with each other (cos = 0.7592). Once
+        // B absorbs C, the resulting centroid's noise component partially
+        // cancels (B and C share the same 0.72 component along A's axis but
+        // differ in their orthogonal "noise" direction), pushing similarity to
+        // A up to ~0.768 - newly above threshold. A single pass over the
+        // sorted list visits A (largest, so sorted first) before B and C ever
+        // merge, so it can only discover the A-mergedBC merge on a subsequent
+        // pass. This pins that `mergeClose` keeps looping until a pass yields
+        // zero merges, rather than stopping after one full scan.
+        val aB = 0.72f
+        val aC = 0.72f
+        val rB = sqrt(1f - aB * aB)
+        val rC = sqrt(1f - aC * aC)
+        val cosPhi = 0.5f
+        val sinPhi = sqrt(3f) / 2f
+
+        val vecA = FloatArray(512).also { it[0] = 1f }
+        val vecB = FloatArray(512).also { it[0] = aB; it[1] = rB }
+        val vecC = FloatArray(512).also { it[0] = aC; it[1] = rC * cosPhi; it[2] = rC * sinPhi }
+
+        // Sanity-check the geometry this test depends on, independent of any
+        // FaceClusterer behaviour, before relying on it below.
+        assertThat(SimilarityMatcher.cosineSimilarity(vecA, vecB)).isLessThan(0.75f)
+        assertThat(SimilarityMatcher.cosineSimilarity(vecA, vecC)).isLessThan(0.75f)
+        assertThat(SimilarityMatcher.cosineSimilarity(vecB, vecC)).isAtLeast(0.75f)
+
+        // Cluster A: 3 identical-direction faces, so it sorts first (largest)
+        // and its centroid stays exactly on axis 0.
+        val faceA1 = insertFace(vecA)
+        val faceA2 = insertFace(vecA)
+        val faceA3 = insertFace(vecA)
+        val idA = clusterer.assign(faceA1, vecA, 0.1f)
+        clusterer.assign(faceA2, vecA, 0.1f)
+        clusterer.assign(faceA3, vecA, 0.1f)
+        assertThat(db.clusterDao().byId(idA)!!.faceCount).isEqualTo(3)
+
+        // B and C: each 0.72 similar to A, which is above the 0.6 default
+        // assign threshold, so a strict split threshold is needed to keep
+        // them as their own singleton clusters instead of joining A outright.
+        val splitClusterer = FaceClusterer(
+            clusterDao = db.clusterDao(),
+            faceDao = db.faceDao(),
+            assignThreshold = 0.9999f,
+            mergeThreshold = 0.75f,
+            now = { 0L }
+        )
+        val faceB = insertFace(vecB)
+        val idB = splitClusterer.assign(faceB, vecB, 0.1f)
+        val faceC = insertFace(vecC)
+        val idC = splitClusterer.assign(faceC, vecC, 0.1f)
+        assertThat(db.clusterDao().all()).hasSize(3)
+
+        clusterer.mergeClose()
+
+        val remaining = db.clusterDao().all()
+        assertThat(remaining).hasSize(1)
+        assertThat(remaining[0].id).isEqualTo(idA)
+        assertThat(remaining[0].faceCount).isEqualTo(5)
+        assertThat(db.clusterDao().byId(idB)).isNull()
+        assertThat(db.clusterDao().byId(idC)).isNull()
+    }
+
+    @Test
     fun `mergeUserRequested moves all faces and deletes source`() = runTest {
         val faceA = insertFace(unitVec(seed = 1))
         val faceB = insertFace(unitVec(seed = 2))
