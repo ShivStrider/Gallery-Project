@@ -341,31 +341,65 @@ class ClusteringBenchmarkTest {
                 now = { 0L }
             )
 
+            val assignedCluster = HashMap<Long, Long>(scale.totalFaces * 2)
             db.withTransaction {
                 for (i in 0 until scale.totalFaces) {
                     val identity = i % scale.identities
                     val variant = i / scale.identities
                     val embedding = variantVector(identity, variant)
                     val faceId = db.faceDao().insert(faceEntity(photoId, embedding))
-                    clusterer.assign(faceId, embedding, quality = 0.1f)
+                    assignedCluster[faceId] = clusterer.assign(faceId, embedding, quality = 0.1f)
                 }
             }
             val clustersBefore = db.clusterDao().all().size
 
-            // Reset the counter so it measures the refinement pass alone, not
-            // the assign phase that built the fixture. all() was just called
-            // above for clustersBefore, which goes through the raw dao, not
-            // the counting wrapper.
+            // The synthetic identities are cleanly separated by construction
+            // (see the generator test: maxInterSim ~0.07 against a 0.6
+            // threshold), so greedy assign already lands every face in the
+            // right cluster and refinement would have literally nothing to
+            // move. A pass that moves zero faces returns before it ever
+            // reaches the write-through code, which would make every
+            // assertion below pass vacuously — the benchmark would look like
+            // coverage while exercising one early return.
+            //
+            // So deliberately corrupt the assignment first: park every 20th
+            // face in a different cluster, exactly the order-dependence
+            // artifact refineAssignments exists to repair. Only the face rows
+            // move; the stored centroids still describe the correct
+            // membership, so the pass has an unambiguous right answer to find.
+            val strays = assignedCluster.entries.sortedBy { it.key }.filterIndexed { i, _ -> i % 20 == 0 }
+            val allClusterIds = db.clusterDao().all().map { it.id }.sorted()
+            db.withTransaction {
+                for ((faceId, correctCluster) in strays) {
+                    val wrong = allClusterIds.first { it != correctCluster }
+                    db.faceDao().assignToCluster(faceId, wrong)
+                }
+            }
+            assertThat(strays).isNotEmpty()
+
+            // Force a reload so the pass starts from Room's state, not the
+            // cache the assign phase left warm — otherwise the reset counter
+            // below would have nothing to count.
+            clusterer.invalidate()
+
+            // Reset after invalidate() so this measures the refinement pass
+            // alone, not the assign phase that built the fixture.
             countingClusterDao.resetCounts()
 
             var moved = 0
             val elapsedMs = measureTimeMillis { moved = clusterer.refineAssignments() }
 
-            // The clusterer's cache is already warm from the assign phase, so
-            // a correct implementation reads the centroid table zero more
-            // times. A per-sweep or per-face reload would push this up with
-            // scale.
-            assertThat(countingClusterDao.allCalls).isAtMost(1)
+            // Exactly one centroid-table read for the whole pass, however many
+            // sweeps it runs and however many faces it moves. A per-sweep or
+            // per-face reload would push this up with scale.
+            assertThat(countingClusterDao.allCalls).isEqualTo(1)
+
+            // Every stray found its way home, so the write-through path really
+            // ran rather than being skipped by the zero-move early return.
+            assertThat(moved).isEqualTo(strays.size)
+            for ((faceId, correctCluster) in strays) {
+                assertThat(db.faceDao().findById(faceId)!!.clusterId).isEqualTo(correctCluster)
+            }
 
             // Converged: a second pass over already-refined assignments moves
             // nothing. This is the property that makes the pass safe to run on
