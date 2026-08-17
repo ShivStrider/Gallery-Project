@@ -213,11 +213,16 @@ class PhotoRepository(private val context: Context) {
             )
         }
 
+        // Captured before insert so the destination row never gets stamped
+        // with import time — see applySourceDates() for the unit handling.
+        val sourceDates = querySourceDates(sourceUri)
+
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, destDisplayName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
+            applySourceDates(this, sourceDates)
         }
 
         val destUri = resolver.insert(
@@ -249,6 +254,11 @@ class PhotoRepository(private val context: Context) {
 
             val complete = ContentValues().apply {
                 put(MediaStore.Images.Media.IS_PENDING, 0)
+                // Re-applied here, not just at insert: some OEM MediaStore
+                // implementations rewrite DATE_MODIFIED when the pending flag
+                // clears and the file's final write lands, which would
+                // silently undo the insert-time value above.
+                applySourceDates(this, sourceDates)
             }
             val rowsUpdated = resolver.update(destUri, complete, null, null)
             if (rowsUpdated <= 0) {
@@ -351,11 +361,17 @@ class PhotoRepository(private val context: Context) {
             ?: deriveMimeTypeFromFileName(targetDisplayName)
         val relativePath = targetRelativePath.trimEnd('/')
 
+        // The exported copy's own row is the source of truth here — once
+        // copyToAlbumChecked carries dates onto it, restoring reads them back
+        // off it rather than re-deriving anything.
+        val sourceDates = querySourceDates(sourceCopyUri)
+
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, targetDisplayName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
+            applySourceDates(this, sourceDates)
         }
         val restoredUri = resolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -390,6 +406,9 @@ class PhotoRepository(private val context: Context) {
 
             val complete = ContentValues().apply {
                 put(MediaStore.Images.Media.IS_PENDING, 0)
+                // See copyToAlbumChecked: some OEMs rewrite DATE_MODIFIED when
+                // pending clears, so reassert it here too.
+                applySourceDates(this, sourceDates)
             }
             if (resolver.update(restoredUri, complete, null, null) <= 0) {
                 throw CopyFailureException(CopyToAlbumError.FINALIZE_FAILED)
@@ -521,6 +540,81 @@ class PhotoRepository(private val context: Context) {
         return null
     }
 
+    /**
+     * A source's capture/modification timestamps, in MediaStore's own
+     * (mixed) units — [dateTakenMs] milliseconds since epoch, [dateModifiedSec]
+     * seconds since epoch. Either may be null if the source row doesn't carry
+     * that column (e.g. a non-MediaStore content:// source) or the value is
+     * absent.
+     */
+    private data class SourceDates(val dateTakenMs: Long?, val dateModifiedSec: Long?)
+
+    /**
+     * Read a source's DATE_TAKEN/DATE_MODIFIED straight off [uri] so a copy
+     * or restore can carry them onto the destination row instead of letting
+     * MediaStore stamp import time. Uses getColumnIndex (not *OrThrow) since
+     * [uri] is not guaranteed to be a MediaStore images URI with these
+     * columns present.
+     */
+    private fun querySourceDates(uri: Uri): SourceDates {
+        context.contentResolver.query(
+            uri,
+            arrayOf(MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_MODIFIED),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+                val modCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
+                val dateTakenMs = if (takenCol >= 0 && !cursor.isNull(takenCol)) {
+                    cursor.getLong(takenCol)
+                } else {
+                    null
+                }
+                val dateModifiedSec = if (modCol >= 0 && !cursor.isNull(modCol)) {
+                    cursor.getLong(modCol)
+                } else {
+                    null
+                }
+                return SourceDates(dateTakenMs, dateModifiedSec)
+            }
+        }
+        return SourceDates(dateTakenMs = null, dateModifiedSec = null)
+    }
+
+    /**
+     * Carry a source's timestamps onto a destination row's [values] so an
+     * exported or restored copy keeps its place in a photo timeline instead
+     * of showing the moment it was written.
+     *
+     * Unit trap: MediaStore.Images.Media.DATE_TAKEN is **milliseconds** since
+     * epoch; DATE_MODIFIED is **seconds** since epoch. Never assign one where
+     * the other is expected — that is what produces 1970 or far-future dates.
+     * DATE_ADDED is deliberately never written here: it is documented as
+     * MediaStore-owned.
+     *
+     * [SourceDates.dateTakenMs] can legitimately be null or 0 (e.g. a
+     * screenshot with no EXIF). Writing a literal 0 would read as 1970-01-01,
+     * which is worse than the current bug — so when it's missing this falls
+     * back to the source's DATE_MODIFIED converted to milliseconds, and only
+     * omits DATE_TAKEN entirely (letting MediaStore derive it) if neither
+     * value is available at all.
+     */
+    private fun applySourceDates(values: ContentValues, dates: SourceDates) {
+        val dateTakenMs = dates.dateTakenMs?.takeIf { it > 0L }
+            ?: dates.dateModifiedSec?.takeIf { it > 0L }?.let { it * MILLIS_PER_SECOND }
+        if (dateTakenMs != null) {
+            // DATE_TAKEN unit: milliseconds since epoch.
+            values.put(MediaStore.Images.Media.DATE_TAKEN, dateTakenMs)
+        }
+        val dateModifiedSec = dates.dateModifiedSec?.takeIf { it > 0L }
+        if (dateModifiedSec != null) {
+            // DATE_MODIFIED unit: seconds since epoch (NOT milliseconds).
+            values.put(MediaStore.Images.Media.DATE_MODIFIED, dateModifiedSec)
+        }
+    }
+
     private fun deriveMimeTypeFromFileName(fileName: String): String {
         return when (fileName.substringAfterLast('.', "").lowercase()) {
             "jpg", "jpeg" -> "image/jpeg"
@@ -539,6 +633,9 @@ class PhotoRepository(private val context: Context) {
 
         /** Stay under SQLite's 999-bind-variable limit for IN() clauses. */
         const val SQL_VARIABLE_CHUNK = 900
+
+        /** MediaStore.DATE_MODIFIED is seconds; MediaStore.DATE_TAKEN is milliseconds. */
+        const val MILLIS_PER_SECOND = 1000L
 
         val HEX = "0123456789abcdef".toCharArray()
     }

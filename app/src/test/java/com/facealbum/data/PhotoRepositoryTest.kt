@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.MatrixCursor
 import android.net.Uri
+import android.provider.MediaStore
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -135,6 +136,136 @@ class PhotoRepositoryTest {
         assertEquals(sha256Hex(payload), success.sha256)
         assertEquals(false, success.dedupHit)
     }
+
+    // --- Source date carry-through (the export-timeline bug) ---
+    //
+    // DATE_TAKEN is milliseconds since epoch; DATE_MODIFIED (and DATE_ADDED,
+    // never written here) is seconds since epoch. Values below are chosen so
+    // a units mix-up (multiplying/dividing by 1000 on the wrong field) would
+    // fail these assertions rather than passing by coincidence.
+
+    @Test
+    fun `copyToAlbumChecked carries source DATE_TAKEN ms and DATE_MODIFIED sec onto insert and finalize`() = runTest {
+        val payload = byteArrayOf(1, 2, 3)
+        val dateTakenMs = 1_700_000_000_123L
+        val dateModifiedSec = 1_700_000_500L
+        setupSuccessFlow("image/jpeg", ByteArrayInputStream(payload), CapturingOutputStream())
+        every { resolver.query(sourceUri, any(), null, null, null) } returns
+            datesCursor(dateTakenMs, dateModifiedSec)
+
+        val result = PhotoRepository(context)
+            .copyToAlbumChecked(sourceUri, "Person", "dest.jpg")
+
+        assertTrue(result is PhotoRepository.CheckedCopyResult.Success)
+        verify {
+            resolver.insert(any(), withArg<ContentValues> {
+                assertEquals(dateTakenMs, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+                assertEquals(dateModifiedSec, it.getAsLong(MediaStore.Images.Media.DATE_MODIFIED))
+            })
+        }
+        // Re-asserted at IS_PENDING clear too, in case an OEM rewrote it
+        // while the file was being finalized.
+        verify {
+            resolver.update(destUri, withArg<ContentValues> {
+                assertEquals(dateTakenMs, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+                assertEquals(dateModifiedSec, it.getAsLong(MediaStore.Images.Media.DATE_MODIFIED))
+            }, null, null)
+        }
+    }
+
+    @Test
+    fun `copyToAlbumChecked falls back to DATE_MODIFIED-derived ms when source DATE_TAKEN is null`() = runTest {
+        setupSuccessFlow("image/jpeg", ByteArrayInputStream(byteArrayOf(1)), CapturingOutputStream())
+        val dateModifiedSec = 1_700_000_500L
+        every { resolver.query(sourceUri, any(), null, null, null) } returns
+            datesCursor(dateTakenMs = null, dateModifiedSec = dateModifiedSec)
+
+        PhotoRepository(context).copyToAlbumChecked(sourceUri, "Person", "dest.jpg")
+
+        verify {
+            resolver.insert(any(), withArg<ContentValues> {
+                // Fallback must convert seconds -> milliseconds, not copy verbatim.
+                assertEquals(dateModifiedSec * 1000L, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+                assertEquals(dateModifiedSec, it.getAsLong(MediaStore.Images.Media.DATE_MODIFIED))
+            })
+        }
+    }
+
+    @Test
+    fun `copyToAlbumChecked treats a zero DATE_TAKEN as absent rather than writing 1970`() = runTest {
+        setupSuccessFlow("image/jpeg", ByteArrayInputStream(byteArrayOf(1)), CapturingOutputStream())
+        val dateModifiedSec = 1_700_000_500L
+        every { resolver.query(sourceUri, any(), null, null, null) } returns
+            datesCursor(dateTakenMs = 0L, dateModifiedSec = dateModifiedSec)
+
+        PhotoRepository(context).copyToAlbumChecked(sourceUri, "Person", "dest.jpg")
+
+        verify {
+            resolver.insert(any(), withArg<ContentValues> {
+                assertEquals(dateModifiedSec * 1000L, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+            })
+        }
+    }
+
+    @Test
+    fun `copyToAlbumChecked omits date columns entirely when the source has neither`() = runTest {
+        setupSuccessFlow("image/jpeg", ByteArrayInputStream(byteArrayOf(1)), CapturingOutputStream())
+        every { resolver.query(sourceUri, any(), null, null, null) } returns
+            datesCursor(dateTakenMs = null, dateModifiedSec = null)
+
+        PhotoRepository(context).copyToAlbumChecked(sourceUri, "Person", "dest.jpg")
+
+        verify {
+            resolver.insert(any(), withArg<ContentValues> {
+                assertTrue(!it.containsKey(MediaStore.Images.Media.DATE_TAKEN))
+                assertTrue(!it.containsKey(MediaStore.Images.Media.DATE_MODIFIED))
+            })
+        }
+    }
+
+    @Test
+    fun `restoreFromCopy carries the exported copy's dates onto the restored row`() = runTest {
+        val payload = byteArrayOf(4, 5, 6)
+        val dateTakenMs = 1_699_999_000_456L
+        val dateModifiedSec = 1_699_999_000L
+        val copyUri = Uri.parse("content://media/external/images/media/900")
+        val restoredUri = Uri.parse("content://media/external/images/media/901")
+
+        every { context.contentResolver } returns resolver
+        every { resolver.getType(copyUri) } returns "image/jpeg"
+        every { resolver.query(copyUri, any(), null, null, null) } returns
+            datesCursor(dateTakenMs, dateModifiedSec)
+        every { resolver.insert(any(), any()) } returns restoredUri
+        every { resolver.openInputStream(copyUri) } returns ByteArrayInputStream(payload)
+        every { resolver.openOutputStream(restoredUri) } returns CapturingOutputStream()
+        every { resolver.update(restoredUri, any(), null, null) } returns 1
+
+        val result = PhotoRepository(context).restoreFromCopy(
+            sourceCopyUri = copyUri,
+            targetRelativePath = "Pictures/Camera",
+            targetDisplayName = "orig.jpg",
+            expectedSha256 = sha256Hex(payload)
+        )
+
+        assertTrue(result is PhotoRepository.CheckedCopyResult.Success)
+        verify {
+            resolver.insert(any(), withArg<ContentValues> {
+                assertEquals(dateTakenMs, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+                assertEquals(dateModifiedSec, it.getAsLong(MediaStore.Images.Media.DATE_MODIFIED))
+            })
+        }
+        verify {
+            resolver.update(restoredUri, withArg<ContentValues> {
+                assertEquals(dateTakenMs, it.getAsLong(MediaStore.Images.Media.DATE_TAKEN))
+                assertEquals(dateModifiedSec, it.getAsLong(MediaStore.Images.Media.DATE_MODIFIED))
+            }, null, null)
+        }
+    }
+
+    private fun datesCursor(dateTakenMs: Long?, dateModifiedSec: Long?) =
+        MatrixCursor(arrayOf(MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_MODIFIED)).apply {
+            addRow(arrayOf<Any?>(dateTakenMs, dateModifiedSec))
+        }
 
     @Test
     fun `verification passes when size and checksum match`() = runTest {
