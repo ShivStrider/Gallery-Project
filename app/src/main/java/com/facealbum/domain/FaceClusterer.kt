@@ -44,6 +44,15 @@ class FaceClusterer(
     private val now: () -> Long = { System.currentTimeMillis() }
 ) {
 
+    /** In-memory snapshot of a face used only within [refineAssignments]. */
+    private class FaceState(
+        val id: Long,
+        val embedding: FloatArray,
+        val quality: Float,
+        val originalClusterId: Long?,
+        var clusterId: Long?
+    )
+
     private class Cached(
         val id: Long,
         var centroid: FloatArray,
@@ -178,6 +187,26 @@ class FaceClusterer(
      * absorption can newly bring a survivor within threshold of a cluster
      * already passed over earlier in this pass; that's picked up by the next
      * full pass, which is why passes repeat until one yields zero merges.
+     *
+     * ## Anti-chaining guard
+     * Centroid linkage is prone to chaining: cluster A absorbs B, the shifted
+     * A-centroid now reaches C even though A's *original* faces and C were
+     * never actually close, and two genuinely different people end up in one
+     * group via a bridge. Because a survivor's face count only grows within a
+     * pass (see above), a large `faceCount` is a direct, already-tracked
+     * signal that a cluster has been through one or more absorptions and its
+     * centroid may have drifted from any single member. So once either side
+     * of a candidate pair has at least
+     * [FaceRecognitionConfig.CLUSTER_MERGE_CHAIN_GUARD_SIZE] faces, the pair
+     * must clear `mergeThreshold + `
+     * [FaceRecognitionConfig.CLUSTER_MERGE_CHAIN_GUARD_MARGIN] instead of the
+     * plain [mergeThreshold]. This was picked over an average-linkage sample
+     * check (re-reading member faces per candidate pair via
+     * [FaceDao.facesInCluster]) because it costs nothing beyond a size
+     * comparison on data already cached — the sampling approach would add
+     * Room reads inside the O(n^2) pairwise loop, which is exactly the shape
+     * [ClusteringBenchmarkTest] guards against ("mergeClose reloads centroids
+     * once regardless of merge count").
      */
     suspend fun mergeClose() {
         // Reload rather than trust the cache: this is the end-of-scan pass and
@@ -185,6 +214,7 @@ class FaceClusterer(
         // since the cache was built. One reload per scan is cheap.
         invalidate()
         val clusters = ensureLoaded()
+        val chainGuardThreshold = mergeThreshold + FaceRecognitionConfig.CLUSTER_MERGE_CHAIN_GUARD_MARGIN
         var changed = true
         while (changed) {
             changed = false
@@ -197,8 +227,15 @@ class FaceClusterer(
                     val b = all[j]
                     if (b.id in dead) continue
                     val sim = SimilarityMatcher.cosineSimilarity(a.centroid, b.centroid)
-                    if (sim >= mergeThreshold) {
-                        Timber.d("Merging cluster ${b.id} into ${a.id} (sim=$sim)")
+                    val requiredSim = if (
+                        maxOf(a.faceCount, b.faceCount) >= FaceRecognitionConfig.CLUSTER_MERGE_CHAIN_GUARD_SIZE
+                    ) {
+                        chainGuardThreshold
+                    } else {
+                        mergeThreshold
+                    }
+                    if (sim >= requiredSim) {
+                        Timber.d("Merging cluster ${b.id} into ${a.id} (sim=$sim, required=$requiredSim)")
                         mergeInto(survivor = a, absorbed = b)
                         dead += b.id
                         changed = true
@@ -291,6 +328,189 @@ class FaceClusterer(
     suspend fun deleteEmpty() {
         clusterDao.deleteEmpty()
         cache?.values?.removeIf { it.faceCount <= 0 }
+    }
+
+    /**
+     * Order-independent refinement pass over existing cluster assignments.
+     *
+     * [assign] is greedy and online: a face is locked into whichever cluster
+     * existed at the moment it arrived, and is never revisited as later faces
+     * shift that cluster's centroid. This runs up to [maxIterations]
+     * Lloyd-style sweeps over every face's *current* assignment:
+     *
+     *  - Every face's embedding is loaded once, up front
+     *    ([FaceDao.allOrderedByQualityDesc]).
+     *  - Each sweep computes, for every face, the nearest cluster centroid
+     *    *as centroids stood at the start of that sweep* (centroids are only
+     *    recomputed once, after the whole sweep has decided its moves — a
+     *    face's move never affects another face's decision within the same
+     *    sweep). A face moves only if all of:
+     *      1. the nearest centroid belongs to a different cluster than the
+     *         face's current one,
+     *      2. that similarity is at or above [assignThreshold], and
+     *      3. it beats the face's similarity to its *current* centroid by at
+     *         least [FaceRecognitionConfig.REFINE_HYSTERESIS_MARGIN].
+     *    Condition 3 is a hysteresis margin: without it, a face sitting
+     *    almost exactly equidistant between two centroids could move back
+     *    toward its original cluster on the very next sweep once that move
+     *    nudges both centroids by a hair, flapping instead of settling.
+     *  - All centroid math for the sweep happens in memory, from the
+     *    embeddings loaded up front — no per-face or per-cluster Room reads.
+     *  - Stops the moment a sweep moves zero faces (converged), or after
+     *    [maxIterations] sweeps, whichever comes first.
+     *
+     * Only the *net* effect is written through to Room once the loop ends:
+     * faces whose final cluster differs from what Room has, and — for every
+     * cluster whose membership actually changed — one authoritative
+     * recompute of its centroid/faceCount/cover face from final membership
+     * (mirroring [recomputeFromFaces]'s math, but from the already-loaded
+     * embeddings rather than a fresh per-cluster query). A cluster that lost
+     * every member is written with `faceCount = 0` so a subsequent
+     * [deleteEmpty] call actually removes it — callers should call
+     * [deleteEmpty] after this.
+     *
+     * @return the total number of faces that changed cluster, summed across
+     *   all sweeps (0 if nothing moved — including on a converged, idempotent
+     *   second call).
+     */
+    suspend fun refineAssignments(maxIterations: Int = 3): Int {
+        val clusters = ensureLoaded()
+        if (clusters.isEmpty()) return 0
+
+        val faceRows = faceDao.allOrderedByQualityDesc()
+        if (faceRows.isEmpty()) return 0
+
+        val states = faceRows.map { f ->
+            FaceState(
+                id = f.id,
+                embedding = Embeddings.fromBytes(f.embedding),
+                quality = f.quality,
+                originalClusterId = f.clusterId,
+                clusterId = f.clusterId
+            )
+        }
+
+        var totalMoved = 0
+        var iteration = 0
+        while (iteration < maxIterations) {
+            iteration++
+            var movedThisIteration = 0
+            for (state in states) {
+                val currentId = state.clusterId ?: continue
+                val currentCentroid = clusters[currentId]?.centroid ?: continue
+
+                var bestId: Long? = null
+                var bestSim = Float.NEGATIVE_INFINITY
+                for ((cid, c) in clusters) {
+                    val sim = SimilarityMatcher.cosineSimilarity(state.embedding, c.centroid)
+                    if (sim > bestSim) {
+                        bestSim = sim
+                        bestId = cid
+                    }
+                }
+
+                if (bestId == null || bestId == currentId || bestSim < assignThreshold) continue
+                val simToCurrent = SimilarityMatcher.cosineSimilarity(state.embedding, currentCentroid)
+                if (bestSim < simToCurrent + FaceRecognitionConfig.REFINE_HYSTERESIS_MARGIN) continue
+
+                state.clusterId = bestId
+                movedThisIteration++
+            }
+
+            if (movedThisIteration == 0) break
+            totalMoved += movedThisIteration
+            recomputeCentroidsInMemory(states, clusters)
+        }
+
+        if (totalMoved == 0) return 0
+
+        // Persist only what actually changed: faces whose final cluster
+        // differs from the DB, and the clusters on either end of a move.
+        val touchedClusters = HashSet<Long>()
+        for (state in states) {
+            if (state.clusterId != state.originalClusterId) {
+                faceDao.assignToCluster(state.id, state.clusterId)
+                state.originalClusterId?.let { touchedClusters += it }
+                state.clusterId?.let { touchedClusters += it }
+            }
+        }
+
+        val membersByCluster = HashMap<Long, MutableList<FaceState>>()
+        for (state in states) {
+            val cid = state.clusterId ?: continue
+            membersByCluster.getOrPut(cid) { mutableListOf() } += state
+        }
+
+        for (clusterId in touchedClusters) {
+            val cached = clusters[clusterId] ?: continue
+            val members = membersByCluster[clusterId].orEmpty()
+            if (members.isEmpty()) {
+                // Every face moved out; write faceCount = 0 so deleteEmpty()
+                // (the caller's responsibility, per KDoc above) picks it up.
+                cached.faceCount = 0
+                clusterDao.updateStats(
+                    id = clusterId,
+                    centroid = Embeddings.toBytes(cached.centroid),
+                    faceCount = 0,
+                    coverFaceId = null,
+                    updatedAt = now()
+                )
+                continue
+            }
+
+            val dim = members.first().embedding.size
+            val sum = FloatArray(dim)
+            var bestFaceId = members.first().id
+            var bestQuality = members.first().quality
+            for (m in members) {
+                for (i in 0 until dim) sum[i] += m.embedding[i]
+                if (m.quality > bestQuality) {
+                    bestQuality = m.quality
+                    bestFaceId = m.id
+                }
+            }
+            for (i in 0 until dim) sum[i] /= members.size
+            val centroid = l2Normalized(sum)
+
+            cached.centroid = centroid
+            cached.faceCount = members.size
+            cached.coverFaceId = bestFaceId
+            cached.coverQuality = bestQuality
+            clusterDao.updateStats(
+                id = clusterId,
+                centroid = Embeddings.toBytes(centroid),
+                faceCount = members.size,
+                coverFaceId = bestFaceId,
+                updatedAt = now()
+            )
+        }
+
+        return totalMoved
+    }
+
+    /**
+     * Recomputes every cluster's centroid in [clusters] from [states]' *current*
+     * (possibly just-moved) assignments, purely in memory. Used between
+     * sweeps inside [refineAssignments] so the next sweep sees this sweep's
+     * moves reflected in the centroids it compares against, without a Room
+     * round-trip. Does not touch [Cached.faceCount] / [Cached.coverFaceId] —
+     * those are only ever made authoritative by the final write-through in
+     * [refineAssignments], once the whole pass has settled.
+     */
+    private fun recomputeCentroidsInMemory(states: List<FaceState>, clusters: LinkedHashMap<Long, Cached>) {
+        val sums = HashMap<Long, FloatArray>()
+        val counts = HashMap<Long, Int>()
+        for (state in states) {
+            val cid = state.clusterId ?: continue
+            val sum = sums.getOrPut(cid) { FloatArray(state.embedding.size) }
+            for (i in state.embedding.indices) sum[i] += state.embedding[i]
+            counts[cid] = (counts[cid] ?: 0) + 1
+        }
+        for ((cid, sum) in sums) {
+            val count = counts[cid] ?: continue
+            for (i in sum.indices) sum[i] /= count
+            clusters[cid]?.centroid = l2Normalized(sum)
+        }
     }
 
     private fun runningMean(oldCentroid: FloatArray, oldCount: Int, addition: FloatArray): FloatArray {

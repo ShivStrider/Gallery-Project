@@ -14,6 +14,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 @RunWith(RobolectricTestRunner::class)
@@ -261,6 +264,183 @@ class FaceClustererTest {
 
         assertThat(db.clusterDao().byId(clusterId)!!.displayName).isEqualTo("Alice")
         assertThat(db.clusterDao().byId(clusterId)!!.faceCount).isEqualTo(2)
+    }
+
+    @Test
+    fun `refineAssignments moves a misassigned face to the correct cluster`() = runTest {
+        // Cluster A: 3 near-duplicate faces of identity 1.
+        val faceA1 = insertFace(unitVec(seed = 1, jitter = 0f))
+        val faceA2 = insertFace(unitVec(seed = 1, jitter = 0.005f))
+        val faceA3 = insertFace(unitVec(seed = 1, jitter = -0.005f))
+        val clusterA = clusterer.assign(faceA1, unitVec(seed = 1, jitter = 0f), 0.1f)
+        clusterer.assign(faceA2, unitVec(seed = 1, jitter = 0.005f), 0.1f)
+        clusterer.assign(faceA3, unitVec(seed = 1, jitter = -0.005f), 0.1f)
+
+        // Cluster B: 3 near-duplicate faces of an unrelated identity 2 (seeds
+        // 1 and 2 are near-orthogonal in 512-D, well under both thresholds -
+        // same premise "dissimilar embeddings produce separate clusters" above
+        // relies on).
+        val faceB1 = insertFace(unitVec(seed = 2, jitter = 0f))
+        val faceB2 = insertFace(unitVec(seed = 2, jitter = 0.005f))
+        val faceB3 = insertFace(unitVec(seed = 2, jitter = -0.005f))
+        val clusterB = clusterer.assign(faceB1, unitVec(seed = 2, jitter = 0f), 0.1f)
+        clusterer.assign(faceB2, unitVec(seed = 2, jitter = 0.005f), 0.1f)
+        clusterer.assign(faceB3, unitVec(seed = 2, jitter = -0.005f), 0.1f)
+        assertThat(clusterA).isNotEqualTo(clusterB)
+
+        // Simulate a pre-existing order-dependence bug: a genuine identity-2
+        // face sitting in cluster A instead of B (as if it had arrived before
+        // A/B were well separated). Inserted directly via the DAOs, bypassing
+        // assign(), and cluster A's stored faceCount bumped to match - the
+        // clusterer must discover and fix this from Room state alone.
+        val strayEmbedding = unitVec(seed = 2, jitter = 0.01f)
+        val strayFace = insertFace(strayEmbedding)
+        db.faceDao().assignToCluster(strayFace, clusterA)
+        val clusterAEntity = db.clusterDao().byId(clusterA)!!
+        db.clusterDao().updateStats(
+            id = clusterA,
+            centroid = clusterAEntity.centroid,
+            faceCount = clusterAEntity.faceCount + 1,
+            coverFaceId = clusterAEntity.coverFaceId,
+            updatedAt = 0L
+        )
+
+        clusterer.invalidate()
+        val moved = clusterer.refineAssignments()
+
+        assertThat(moved).isEqualTo(1)
+        assertThat(db.faceDao().findById(strayFace)!!.clusterId).isEqualTo(clusterB)
+        assertThat(db.clusterDao().byId(clusterA)!!.faceCount).isEqualTo(3)
+        assertThat(db.clusterDao().byId(clusterB)!!.faceCount).isEqualTo(4)
+    }
+
+    @Test
+    fun `refineAssignments converges so a second call moves zero faces`() = runTest {
+        val faceA1 = insertFace(unitVec(seed = 1, jitter = 0f))
+        val faceA2 = insertFace(unitVec(seed = 1, jitter = 0.005f))
+        val clusterA = clusterer.assign(faceA1, unitVec(seed = 1, jitter = 0f), 0.1f)
+        clusterer.assign(faceA2, unitVec(seed = 1, jitter = 0.005f), 0.1f)
+
+        val faceB1 = insertFace(unitVec(seed = 2, jitter = 0f))
+        val faceB2 = insertFace(unitVec(seed = 2, jitter = 0.005f))
+        clusterer.assign(faceB1, unitVec(seed = 2, jitter = 0f), 0.1f)
+        clusterer.assign(faceB2, unitVec(seed = 2, jitter = 0.005f), 0.1f)
+
+        // A stray identity-2 face parked in cluster A, same idiom as above,
+        // so the first call has real work to do.
+        val strayFace = insertFace(unitVec(seed = 2, jitter = 0.01f))
+        db.faceDao().assignToCluster(strayFace, clusterA)
+        val clusterAEntity = db.clusterDao().byId(clusterA)!!
+        db.clusterDao().updateStats(
+            id = clusterA,
+            centroid = clusterAEntity.centroid,
+            faceCount = clusterAEntity.faceCount + 1,
+            coverFaceId = clusterAEntity.coverFaceId,
+            updatedAt = 0L
+        )
+
+        clusterer.invalidate()
+        val firstMoved = clusterer.refineAssignments()
+        assertThat(firstMoved).isGreaterThan(0)
+
+        val secondMoved = clusterer.refineAssignments()
+        assertThat(secondMoved).isEqualTo(0)
+    }
+
+    @Test
+    fun `refineAssignments hysteresis margin keeps a boundary face from flapping`() = runTest {
+        // Two clusters built from exactly repeated vectors, so their
+        // centroids land exactly on vA / vB (no averaging noise to reason
+        // about): vA = e0, vB = cos(theta) e0 + sin(theta) e1 with
+        // cos(theta) = 0.5, comfortably under both thresholds so A and B
+        // never merge or cross-assign on their own.
+        val vA = FloatArray(512).also { it[0] = 1f }
+        val cosTheta = 0.5f
+        val sinTheta = sqrt(0.75f)
+        val vB = FloatArray(512).also { it[0] = cosTheta; it[1] = sinTheta }
+
+        val faceA1 = insertFace(vA)
+        val faceA2 = insertFace(vA)
+        val clusterA = clusterer.assign(faceA1, vA, 0.1f)
+        clusterer.assign(faceA2, vA, 0.1f)
+
+        val faceB1 = insertFace(vB)
+        val faceB2 = insertFace(vB)
+        val clusterB = clusterer.assign(faceB1, vB, 0.1f)
+        clusterer.assign(faceB2, vB, 0.1f)
+        assertThat(clusterA).isNotEqualTo(clusterB)
+
+        // Face C sits near A, tilted just enough toward B that B is the
+        // strictly-nearest centroid, but by less than the 0.02 hysteresis
+        // margin: cos(C, B) - cos(C, A) = sin(phi - 30 degrees) = gap, with
+        // phi chosen so gap is exactly 0.01 via the angle-subtraction
+        // identity below. Both similarities are comfortably above the 0.6
+        // assign threshold, so only the margin condition is being exercised.
+        val gap = 0.01f
+        val thirtyDegrees = (kotlin.math.PI / 6.0).toFloat()
+        val phi = thirtyDegrees + asin(gap)
+        val vC = FloatArray(512).also { it[0] = cos(phi); it[1] = sin(phi) }
+        val simToA = SimilarityMatcher.cosineSimilarity(vC, vA)
+        val simToB = SimilarityMatcher.cosineSimilarity(vC, vB)
+        assertThat(simToB).isGreaterThan(simToA)
+        assertThat(simToB - simToA).isLessThan(0.02f)
+        assertThat(simToB).isAtLeast(0.6f)
+
+        // C is parked in A directly, as if that's where it already sits.
+        val faceC = insertFace(vC)
+        db.faceDao().assignToCluster(faceC, clusterA)
+
+        clusterer.invalidate()
+        val moved = clusterer.refineAssignments()
+
+        assertThat(moved).isEqualTo(0)
+        assertThat(db.faceDao().findById(faceC)!!.clusterId).isEqualTo(clusterA)
+    }
+
+    @Test
+    fun `mergeClose anti-chaining guard blocks a bridge merge a centroid-only rule would make`() = runTest {
+        // Cluster A grows to the chain-guard size (8) from identical vectors,
+        // so its centroid sits exactly on e0 with no averaging noise to
+        // reason about.
+        val vA = FloatArray(512).also { it[0] = 1f }
+        var clusterA = -1L
+        repeat(8) {
+            val faceId = insertFace(vA)
+            clusterA = clusterer.assign(faceId, vA, 0.1f)
+        }
+        assertThat(db.clusterDao().byId(clusterA)!!.faceCount).isEqualTo(8)
+
+        // Cluster C: a single face whose similarity to A's centroid (0.77)
+        // clears the plain merge threshold (0.75) but not the chain-guard
+        // threshold (0.75 + 0.05 = 0.80) that applies once either side has
+        // >= 8 faces. Forced into its own cluster via a strict assign
+        // threshold, same idiom used throughout this file.
+        val cosPhi = 0.77f
+        val sinPhi = sqrt(1f - cosPhi * cosPhi)
+        val vC = FloatArray(512).also { it[0] = cosPhi; it[1] = sinPhi }
+        assertThat(SimilarityMatcher.cosineSimilarity(vA, vC)).isGreaterThan(0.75f)
+        assertThat(SimilarityMatcher.cosineSimilarity(vA, vC)).isLessThan(0.80f)
+
+        val splitClusterer = FaceClusterer(
+            clusterDao = db.clusterDao(),
+            faceDao = db.faceDao(),
+            assignThreshold = 0.9999f,
+            mergeThreshold = 0.75f,
+            now = { 0L }
+        )
+        val faceC = insertFace(vC)
+        val clusterC = splitClusterer.assign(faceC, vC, 0.1f)
+        assertThat(clusterA).isNotEqualTo(clusterC)
+        assertThat(db.clusterDao().all()).hasSize(2)
+
+        clusterer.mergeClose()
+
+        // The guard must keep them apart: with the old centroid-only rule
+        // (sim 0.77 >= mergeThreshold 0.75) these would have merged.
+        val remaining = db.clusterDao().all()
+        assertThat(remaining).hasSize(2)
+        assertThat(db.clusterDao().byId(clusterA)!!.faceCount).isEqualTo(8)
+        assertThat(db.clusterDao().byId(clusterC)!!.faceCount).isEqualTo(1)
     }
 
     private suspend fun insertFace(embedding: FloatArray): Long {

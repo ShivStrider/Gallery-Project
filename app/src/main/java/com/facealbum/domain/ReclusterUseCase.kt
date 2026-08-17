@@ -63,6 +63,8 @@ class ReclusterUseCase(
                 }
 
                 clusterer.mergeClose()
+                val moved = clusterer.refineAssignments()
+                Timber.i("Recluster refinement moved $moved face(s) to a better-matching cluster")
                 clusterer.deleteEmpty()
                 Progress(processed = total, total = total, clusters = db.clusterDao().all().size)
             }

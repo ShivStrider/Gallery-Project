@@ -100,7 +100,7 @@ jobs:
           # without downloading the test-results artifact — docs/plan/
           # 07-performance-plan.md is filled in from here.
           find app/build/test-results -name 'TEST-com.facealbum.perf.*.xml' 2>/dev/null \
-            | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
+            | xargs -r grep -ho '\[\(assign\|mergeClose\|refine\|generator\)\].*' \
             | sort -u \
             || echo "No benchmark output found."
 
@@ -200,7 +200,7 @@ jobs:
             /tmp/suite-counts-final.txt
           echo "=== Benchmark output ==="
           find app/build/test-results -name 'TEST-com.facealbum.perf.*.xml' 2>/dev/null \
-            | xargs -r grep -ho '\[\(assign\|mergeClose\|generator\)\].*' \
+            | xargs -r grep -ho '\[\(assign\|mergeClose\|refine\|generator\)\].*' \
             | sort -u \
             || echo "No benchmark output found."
 

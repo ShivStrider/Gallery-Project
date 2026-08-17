@@ -159,6 +159,15 @@ class ClusteringBenchmarkTest {
         var allCalls = 0
             private set
 
+        /**
+         * Zeroes the counter so a test can measure one phase in isolation
+         * (e.g. a refinement pass) without the fixture-building phase's reads
+         * counting against it.
+         */
+        fun resetCounts() {
+            allCalls = 0
+        }
+
         override suspend fun insert(cluster: ClusterEntity): Long = delegate.insert(cluster)
 
         override suspend fun updateStats(
@@ -303,6 +312,83 @@ class ClusteringBenchmarkTest {
         }
         println("[assign] summary:")
         summary.forEach { println("  $it") }
+    }
+
+    // ---- benchmark: refineAssignments() --------------------------------
+
+    // refineAssignments is inherently O(iterations x faces x clusters) cosine
+    // comparisons, and ReclusterUseCase runs it inside the recluster's single
+    // Room transaction — so an unbounded cost here means a write transaction
+    // held open for that long. Its saving grace is that all of that work is
+    // in-memory float math off ONE face read and ONE centroid read, which is
+    // exactly what the call-count assertions below pin down. Without them a
+    // regression to per-face or per-cluster Room reads inside the sweep loop
+    // would be invisible until it hit a real library.
+    @Test
+    fun `refineAssignments reads faces and centroids once for the whole pass`() = runTest(
+        timeout = 5.minutes
+    ) {
+        val scale = scales.last()
+        val db = newDb()
+        try {
+            val photoId = insertSharedPhoto(db)
+            val countingClusterDao = CountingClusterDao(db.clusterDao())
+            val clusterer = FaceClusterer(
+                clusterDao = countingClusterDao,
+                faceDao = db.faceDao(),
+                assignThreshold = 0.6f,
+                mergeThreshold = 0.75f,
+                now = { 0L }
+            )
+
+            db.withTransaction {
+                for (i in 0 until scale.totalFaces) {
+                    val identity = i % scale.identities
+                    val variant = i / scale.identities
+                    val embedding = variantVector(identity, variant)
+                    val faceId = db.faceDao().insert(faceEntity(photoId, embedding))
+                    clusterer.assign(faceId, embedding, quality = 0.1f)
+                }
+            }
+            val clustersBefore = db.clusterDao().all().size
+
+            // Reset the counter so it measures the refinement pass alone, not
+            // the assign phase that built the fixture. all() was just called
+            // above for clustersBefore, which goes through the raw dao, not
+            // the counting wrapper.
+            countingClusterDao.resetCounts()
+
+            var moved = 0
+            val elapsedMs = measureTimeMillis { moved = clusterer.refineAssignments() }
+
+            // The clusterer's cache is already warm from the assign phase, so
+            // a correct implementation reads the centroid table zero more
+            // times. A per-sweep or per-face reload would push this up with
+            // scale.
+            assertThat(countingClusterDao.allCalls).isAtMost(1)
+
+            // Converged: a second pass over already-refined assignments moves
+            // nothing. This is the property that makes the pass safe to run on
+            // every recluster — it cannot oscillate the user's groups.
+            val secondMoved = clusterer.refineAssignments()
+            assertThat(secondMoved).isEqualTo(0)
+
+            val clustersAfter = db.clusterDao().all().size
+            println(
+                "[refine] faces=${scale.totalFaces} identities=${scale.identities} " +
+                    "clustersBefore=$clustersBefore clustersAfter=$clustersAfter " +
+                    "movedFirstPass=$moved secondPassMoved=$secondMoved elapsedMs=$elapsedMs"
+            )
+
+            // Loose sanity ceiling only, in the spirit of the other two
+            // benchmarks: the call-count assertions above are the regression
+            // signal, not wall-clock. 5 000 faces x 200 clusters x 3 sweeps of
+            // 512-dim cosine is genuinely a few hundred million multiplies, so
+            // this is deliberately generous for a cold, shared CI runner.
+            assertThat(elapsedMs).isLessThan(60_000L)
+        } finally {
+            db.close()
+        }
     }
 
     // ---- benchmark: mergeClose() ---------------------------------------

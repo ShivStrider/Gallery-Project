@@ -45,6 +45,31 @@ object FaceRecognitionConfig {
     /** Centroid similarity above which two clusters are merged in a periodic pass */
     const val CLUSTER_MERGE_THRESHOLD = 0.75f
 
+    /**
+     * Minimum improvement [FaceClusterer.refineAssignments] requires before moving a
+     * face from its current cluster to a better-matching one. Without this margin, a
+     * face sitting almost exactly equidistant between two centroids could be pulled
+     * back and forth as each move nudges both centroids by a hair. See
+     * [FaceClusterer.refineAssignments] KDoc for the full reasoning.
+     */
+    const val REFINE_HYSTERESIS_MARGIN = 0.02f
+
+    /**
+     * Once either side of a candidate [FaceClusterer.mergeClose] pair has at least this
+     * many faces, the pair must clear `mergeThreshold + [CLUSTER_MERGE_CHAIN_GUARD_MARGIN]`
+     * instead of the plain merge threshold. See [FaceClusterer.mergeClose] KDoc for the
+     * reasoning.
+     */
+    const val CLUSTER_MERGE_CHAIN_GUARD_SIZE = 8
+
+    /**
+     * Added on top of the (possibly user-configured) merge threshold once a candidate
+     * pair is "large" per [CLUSTER_MERGE_CHAIN_GUARD_SIZE] — a margin rather than a
+     * second absolute constant so the guard still scales if the base threshold is
+     * changed via user preferences.
+     */
+    const val CLUSTER_MERGE_CHAIN_GUARD_MARGIN = 0.05f
+
     /** Minimum cluster size before it shows up in the People grid */
     const val DEFAULT_MIN_CLUSTER_SIZE = 3
 
