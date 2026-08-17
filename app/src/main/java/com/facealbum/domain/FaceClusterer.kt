@@ -469,7 +469,12 @@ class FaceClusterer(
                     bestFaceId = m.id
                 }
             }
-            for (i in 0 until dim) sum[i] /= members.size
+            // Explicit `x = x / n` rather than `x /= n`: Kotlin rejects a
+            // compound assignment into a primitive-array element when the
+            // right operand is an Int ("No set method providing array
+            // access"), even though the plain form resolves fine. Same shape
+            // as recomputeFromFaces above.
+            for (i in 0 until dim) sum[i] = sum[i] / members.size
             val centroid = l2Normalized(sum)
 
             cached.centroid = centroid
@@ -508,7 +513,9 @@ class FaceClusterer(
         }
         for ((cid, sum) in sums) {
             val count = counts[cid] ?: continue
-            for (i in sum.indices) sum[i] /= count
+            // See the note in refineAssignments: `sum[i] /= count` does not
+            // compile for a FloatArray element divided by an Int.
+            for (i in sum.indices) sum[i] = sum[i] / count
             clusters[cid]?.centroid = l2Normalized(sum)
         }
     }
