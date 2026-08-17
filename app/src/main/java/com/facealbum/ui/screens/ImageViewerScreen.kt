@@ -7,8 +7,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -111,6 +114,13 @@ fun ImageViewerScreen(
     }
 }
 
+/**
+ * Per-gesture arbitration decided on first movement past touch slop (see
+ * [ZoomablePhoto]'s pointerInput). Once a mode other than [UNDECIDED] is
+ * picked it is kept for the rest of that gesture.
+ */
+private enum class GestureMode { UNDECIDED, PAGER, DISMISS, PAN, ZOOM }
+
 @Composable
 private fun ZoomablePhoto(
     photo: PhotoEntity,
@@ -143,22 +153,117 @@ private fun ZoomablePhoto(
                 )
             }
             .pointerInput(photo.id) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(1f, 6f)
-                    if (newScale <= 1.001f) {
-                        // Fully zoomed out — treat vertical pan as dismiss intent.
-                        if (abs(pan.y) > 8f && abs(pan.y) > abs(pan.x)) {
-                            offsetY += pan.y
-                            if (abs(offsetY) > 220f) onDismiss()
-                        } else {
-                            offsetY = 0f
-                            offsetX = 0f
+                // Manual gesture arbitration so we only consume pointer events
+                // when we actually need them (pinch-zoom, pan-while-zoomed, or
+                // vertical drag-to-dismiss). Plain horizontal drags at 1x zoom
+                // are left untouched so the surrounding HorizontalPager's own
+                // drag detector can claim them — detectTransformGestures used
+                // to swallow every event unconditionally, which is what broke
+                // page-swiping.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+
+                    // Every single-pointer gesture starts UNDECIDED, zoomed or
+                    // not, so that nothing is consumed before touch slop is
+                    // crossed. Consuming earlier would cancel the sibling
+                    // detectTapGestures block (it treats any consumed change as
+                    // a cancellation), which would kill tap-to-toggle-chrome and
+                    // double-tap-to-zoom-out precisely while zoomed in — the one
+                    // state where double-tap is the way back out.
+                    val startedZoomed = scale > 1.02f
+                    var mode = GestureMode.UNDECIDED
+                    var pendingPanX = 0f
+                    var pendingPanY = 0f
+                    var dismissed = false
+                    val touchSlop = viewConfiguration.touchSlop
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pointerCount = event.changes.count { it.pressed }
+                        val pan = event.calculatePan()
+                        val zoom = event.calculateZoom()
+
+                        if (pointerCount >= 2) {
+                            mode = GestureMode.ZOOM
                         }
-                        scale = 1f
-                    } else {
-                        scale = newScale
-                        offsetX += pan.x
-                        offsetY += pan.y
+
+                        when (mode) {
+                            GestureMode.ZOOM -> {
+                                scale = (scale * zoom).coerceIn(1f, 6f)
+                                if (scale > 1.02f) {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+
+                            GestureMode.PAN -> {
+                                offsetX += pan.x
+                                offsetY += pan.y
+                                event.changes.forEach { it.consume() }
+                            }
+
+                            GestureMode.DISMISS -> {
+                                offsetY += pan.y
+                                event.changes.forEach { it.consume() }
+                                if (!dismissed && abs(offsetY) > 220f) {
+                                    dismissed = true
+                                    onDismiss()
+                                }
+                            }
+
+                            GestureMode.UNDECIDED -> {
+                                pendingPanX += pan.x
+                                pendingPanY += pan.y
+                                if (abs(pendingPanX) > touchSlop || abs(pendingPanY) > touchSlop) {
+                                    mode = when {
+                                        // Already zoomed in: the drag moves the
+                                        // photo, in any direction. Neither the
+                                        // pager nor dismiss competes for it.
+                                        startedZoomed -> GestureMode.PAN
+                                        abs(pendingPanY) > abs(pendingPanX) -> GestureMode.DISMISS
+                                        else -> GestureMode.PAGER
+                                    }
+                                    when (mode) {
+                                        GestureMode.PAN -> {
+                                            offsetX += pendingPanX
+                                            offsetY += pendingPanY
+                                            event.changes.forEach { it.consume() }
+                                        }
+
+                                        GestureMode.DISMISS -> {
+                                            offsetY += pendingPanY
+                                            event.changes.forEach { it.consume() }
+                                        }
+
+                                        // PAGER: leave every change unconsumed so
+                                        // the HorizontalPager's own detector can
+                                        // pick up this and subsequent events once
+                                        // we bail out.
+                                        else -> Unit
+                                    }
+                                }
+                                // Below touch slop: don't consume — we don't yet
+                                // know whether the pager or dismiss wants this.
+                            }
+
+                            GestureMode.PAGER -> Unit // unreachable; loop exits below.
+                        }
+
+                        if (mode == GestureMode.PAGER) {
+                            break
+                        }
+                        if (event.changes.none { it.pressed }) {
+                            break
+                        }
+                    }
+
+                    if (!dismissed && scale <= 1.02f) {
+                        offsetX = 0f
+                        offsetY = 0f
                     }
                 }
             },
