@@ -7,7 +7,6 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.MediaStore
 import io.mockk.every
-import io.mockk.match
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
