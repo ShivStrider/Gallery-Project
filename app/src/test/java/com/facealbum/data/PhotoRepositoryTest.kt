@@ -7,6 +7,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.MediaStore
 import io.mockk.every
+import io.mockk.match
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
@@ -261,6 +262,146 @@ class PhotoRepositoryTest {
             }, null, null)
         }
     }
+
+    // --- Photo details / size reads (metadata sheet, album size) ---
+
+    @Test
+    fun `queryPhotoDetails reads size dimensions dates path and mime type`() = runTest {
+        val mediaId = 42L
+        every { context.contentResolver } returns resolver
+        every {
+            resolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                any(),
+                "${MediaStore.Images.Media._ID} = ?",
+                arrayOf(mediaId.toString()),
+                null
+            )
+        } returns photoDetailsCursor(
+            id = mediaId,
+            displayName = "photo.jpg",
+            sizeBytes = 123_456L,
+            width = 4032,
+            height = 3024,
+            dateTakenMs = 1_700_000_000_123L,
+            dateModifiedSec = 1_700_000_500L,
+            relativePath = "Pictures/Camera/",
+            mimeType = "image/jpeg"
+        )
+
+        val details = PhotoRepository(context).queryPhotoDetails(mediaId)
+
+        assertEquals(mediaId, details?.mediaStoreId)
+        assertEquals("photo.jpg", details?.displayName)
+        assertEquals(123_456L, details?.sizeBytes)
+        assertEquals(4032, details?.width)
+        assertEquals(3024, details?.height)
+        // DATE_TAKEN is milliseconds; DATE_MODIFIED is seconds. A units mix-up
+        // here would fail this assertion rather than passing by coincidence.
+        assertEquals(1_700_000_000_123L, details?.dateTakenMs)
+        assertEquals(1_700_000_500L, details?.dateModifiedSec)
+        assertEquals("Pictures/Camera/", details?.relativePath)
+        assertEquals("image/jpeg", details?.mimeType)
+    }
+
+    @Test
+    fun `queryPhotoDetails returns null when the source row is gone`() = runTest {
+        every { context.contentResolver } returns resolver
+        every {
+            resolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                any(),
+                "${MediaStore.Images.Media._ID} = ?",
+                arrayOf("999"),
+                null
+            )
+        } returns MatrixCursor(photoDetailsColumns())
+
+        val details = PhotoRepository(context).queryPhotoDetails(999L)
+
+        assertEquals(null, details)
+    }
+
+    @Test
+    fun `queryTotalSizeBytes returns zero for an empty id list without querying`() = runTest {
+        every { context.contentResolver } returns resolver
+
+        val total = PhotoRepository(context).queryTotalSizeBytes(emptyList())
+
+        assertEquals(0L, total)
+        verify(exactly = 0) { resolver.query(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `queryTotalSizeBytes chunks above nine hundred ids and sums across chunks`() = runTest {
+        // Nine hundred fifty ids splits into a nine-hundred-id chunk and a
+        // fifty-id chunk under the SQLite bind-variable limit.
+        val ids = (1L..950L).toList()
+        every { context.contentResolver } returns resolver
+        every {
+            resolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media.SIZE),
+                any(),
+                match<Array<String>> { it.size == 900 },
+                null
+            )
+        } returns sizeCursorFor(1L..900L)
+        every {
+            resolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media.SIZE),
+                any(),
+                match<Array<String>> { it.size == 50 },
+                null
+            )
+        } returns sizeCursorFor(901L..950L)
+
+        val total = PhotoRepository(context).queryTotalSizeBytes(ids)
+
+        // Sizes are stood in for by the id itself, so the expected sum is
+        // just the triangular number of 1..950.
+        assertEquals(950L * 951L / 2L, total)
+        verify(exactly = 2) {
+            resolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, any(), any(), any(), null)
+        }
+    }
+
+    private fun photoDetailsColumns() = arrayOf(
+        MediaStore.Images.Media._ID,
+        MediaStore.Images.Media.DISPLAY_NAME,
+        MediaStore.Images.Media.SIZE,
+        MediaStore.Images.Media.WIDTH,
+        MediaStore.Images.Media.HEIGHT,
+        MediaStore.Images.Media.DATE_TAKEN,
+        MediaStore.Images.Media.DATE_MODIFIED,
+        MediaStore.Images.Media.RELATIVE_PATH,
+        MediaStore.Images.Media.MIME_TYPE
+    )
+
+    private fun photoDetailsCursor(
+        id: Long,
+        displayName: String,
+        sizeBytes: Long,
+        width: Int,
+        height: Int,
+        dateTakenMs: Long,
+        dateModifiedSec: Long,
+        relativePath: String,
+        mimeType: String
+    ) = MatrixCursor(photoDetailsColumns()).apply {
+        addRow(
+            arrayOf<Any?>(
+                id, displayName, sizeBytes, width, height,
+                dateTakenMs, dateModifiedSec, relativePath, mimeType
+            )
+        )
+    }
+
+    private fun sizeCursorFor(ids: LongRange) =
+        MatrixCursor(arrayOf(MediaStore.Images.Media.SIZE)).apply {
+            ids.forEach { id -> addRow(arrayOf<Any>(id)) }
+        }
 
     private fun datesCursor(dateTakenMs: Long?, dateModifiedSec: Long?) =
         MatrixCursor(arrayOf(MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_MODIFIED)).apply {

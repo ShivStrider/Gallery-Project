@@ -20,13 +20,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.facealbum.R
 import com.facealbum.ui.theme.Spacing
+import com.facealbum.util.formatBytes
 import com.facealbum.util.formatFriendlyDate
 
 @Composable
 internal fun PersonStatsCard(
     photoCount: Int,
     firstAppearance: Long?,
-    latestAppearance: Long?
+    latestAppearance: Long?,
+    /** Null while the MediaStore size read is still in flight. */
+    totalSizeBytes: Long?
 ) {
     Surface(
         modifier = Modifier
@@ -49,6 +52,11 @@ internal fun PersonStatsCard(
                 StatTile(
                     value = photoCount.toString(),
                     label = stringResource(R.string.export_complete_count_label)
+                )
+                StatTile(
+                    value = totalSizeBytes?.let { formatBytes(it) }
+                        ?: stringResource(R.string.person_detail_stats_calculating),
+                    label = stringResource(R.string.person_detail_stats_size_label)
                 )
                 if (firstAppearance != null) {
                     StatTile(

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.facealbum.config.FaceRecognitionConfig
+import com.facealbum.data.PhotoRepository
 import com.facealbum.data.db.ClusterSummary
 import com.facealbum.data.db.FaceAlbumDatabase
 import com.facealbum.data.db.PhotoEntity
@@ -41,6 +42,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db: FaceAlbumDatabase = FaceAlbumDatabase.get(application)
     private val prefs: UserPreferences = UserPreferences.get(application)
+    private val photoRepository: PhotoRepository = PhotoRepository(application)
 
     // FaceClusterer caches centroids per instance, so it must be constructed
     // per operation — a long-lived instance would go stale against scans and
@@ -190,7 +192,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val photos: List<PhotoEntity>,
         val firstAppearance: Long?,
         val latestAppearance: Long?,
-        val isFavorite: Boolean
+        val isFavorite: Boolean,
+        /**
+         * Sum of [PhotoRepository.queryTotalSizeBytes] across [photos]. Null
+         * while the MediaStore read is still in flight — [loadCluster] fills
+         * the rest of the state in first so the screen never blocks on this,
+         * then patches this field in once the total resolves.
+         */
+        val totalSizeBytes: Long? = null
     )
 
     /** One-shot toast/snackbar messages surfaced by screens. */
@@ -276,8 +285,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 photos = photos,
                 firstAppearance = firstAppearance,
                 latestAppearance = latestAppearance,
-                isFavorite = clusterId in favoriteClusterIds.value
+                isFavorite = clusterId in favoriteClusterIds.value,
+                totalSizeBytes = null
             )
+
+            // Total size is read fresh from MediaStore, which for a large
+            // album is slower than the Room reads above — computed after the
+            // rest of the state is already published so the screen renders
+            // immediately with a "calculating…" placeholder instead of
+            // waiting on this. queryTotalSizeBytes itself runs on
+            // Dispatchers.IO, so this never blocks the main thread either way.
+            val totalBytes = if (photos.isEmpty()) {
+                0L
+            } else {
+                photoRepository.queryTotalSizeBytes(photos.map { it.mediaStoreId })
+            }
+            if (_selectedCluster.value?.clusterId == clusterId) {
+                _selectedCluster.value = _selectedCluster.value?.copy(totalSizeBytes = totalBytes)
+            }
         }
     }
 

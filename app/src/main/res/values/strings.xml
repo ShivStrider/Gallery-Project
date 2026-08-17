@@ -106,6 +106,8 @@
     <string name="person_detail_rename_hint">Person\'s name</string>
     <string name="person_detail_save">Save</string>
     <string name="person_detail_stats_title">About this person</string>
+    <string name="person_detail_stats_size_label">Size</string>
+    <string name="person_detail_stats_calculating">Calculating…</string>
     <string name="person_detail_gallery_title">Photos</string>
     <string name="person_detail_open_photo">Open photo</string>
     <string name="person_detail_move_to">Move to person…</string>
@@ -132,6 +134,24 @@
     <!-- Immersive viewer -->
     <string name="viewer_close">Close viewer</string>
     <string name="viewer_position">%1$d of %2$d</string>
+    <string name="viewer_info">Photo details</string>
+
+    <!-- Photo metadata sheet -->
+    <string name="photo_metadata_title">Photo details</string>
+    <string name="photo_metadata_loading">Loading details…</string>
+    <string name="photo_metadata_file_name">File name</string>
+    <string name="photo_metadata_date_taken">Date taken</string>
+    <string name="photo_metadata_dimensions">Dimensions</string>
+    <string name="photo_metadata_dimensions_format">%1$d × %2$d</string>
+    <string name="photo_metadata_file_size">File size</string>
+    <string name="photo_metadata_folder">Folder</string>
+    <string name="photo_metadata_type">Type</string>
+    <string name="photo_metadata_unknown_value">Unknown</string>
+    <string name="photo_metadata_unavailable">This photo\'s original file couldn\'t be found. It may have been moved or deleted outside FaceAlbum.</string>
+    <plurals name="photo_metadata_faces_found">
+        <item quantity="one">%d face found</item>
+        <item quantity="other">%d faces found</item>
+    </plurals>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

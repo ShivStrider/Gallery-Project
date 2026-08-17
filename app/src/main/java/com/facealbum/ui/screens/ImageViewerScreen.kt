@@ -18,6 +18,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import coil.compose.AsyncImage
 import com.facealbum.R
 import com.facealbum.data.db.PhotoEntity
+import com.facealbum.ui.components.PhotoMetadataSheet
 import kotlin.math.abs
 
 /**
@@ -60,6 +62,7 @@ fun ImageViewerScreen(
     val safeInitial = initialIndex.coerceIn(0, photos.lastIndex)
     val pagerState = rememberPagerState(initialPage = safeInitial) { photos.size }
     var chromeVisible by remember { mutableStateOf(true) }
+    var showMetadata by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -108,7 +111,26 @@ fun ImageViewerScreen(
                             tint = Color.White
                         )
                     }
+                },
+                actions = {
+                    IconButton(onClick = { showMetadata = true }) {
+                        Icon(
+                            Icons.Outlined.Info,
+                            contentDescription = stringResource(R.string.viewer_info),
+                            tint = Color.White
+                        )
+                    }
                 }
+            )
+        }
+
+        if (showMetadata) {
+            // Keyed off currentPage rather than the page the sheet was opened
+            // from: the sheet describes whatever photo is on screen, and now
+            // that swiping works the two can diverge.
+            PhotoMetadataSheet(
+                photo = photos[pagerState.currentPage.coerceIn(0, photos.lastIndex)],
+                onDismiss = { showMetadata = false }
             )
         }
     }

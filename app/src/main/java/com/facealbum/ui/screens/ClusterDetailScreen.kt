@@ -168,7 +168,8 @@ fun ClusterDetailScreen(
                     PersonStatsCard(
                         photoCount = state.photos.size,
                         firstAppearance = state.firstAppearance,
-                        latestAppearance = state.latestAppearance
+                        latestAppearance = state.latestAppearance,
+                        totalSizeBytes = state.totalSizeBytes
                     )
                 }
 

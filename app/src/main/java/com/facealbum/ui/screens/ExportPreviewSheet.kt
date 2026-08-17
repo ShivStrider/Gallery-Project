@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import com.facealbum.R
 import com.facealbum.domain.ExportPlanner
 import com.facealbum.ui.theme.Spacing
+import com.facealbum.util.formatBytes
 
 /**
  * Confirmation step shown before any file is touched.
@@ -168,15 +169,4 @@ private fun SummaryRow(label: String, value: String) {
             modifier = Modifier.weight(1f)
         )
     }
-}
-
-/**
- * Deliberately decimal (1 kB = 1000 B) to match how Android surfaces storage
- * elsewhere, so the estimate reads consistently with the system's own numbers.
- */
-internal fun formatBytes(bytes: Long): String = when {
-    bytes < 1_000L -> "$bytes B"
-    bytes < 1_000_000L -> "%.0f kB".format(bytes / 1_000.0)
-    bytes < 1_000_000_000L -> "%.1f MB".format(bytes / 1_000_000.0)
-    else -> "%.2f GB".format(bytes / 1_000_000_000.0)
 }

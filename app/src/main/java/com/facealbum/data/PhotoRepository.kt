@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.facealbum.model.PhotoInfo
@@ -445,6 +446,122 @@ class PhotoRepository(private val context: Context) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Full detail set for the photo-metadata sheet: everything MediaStore
+     * currently knows about one image, read fresh (never cached) so a
+     * replaced file never shows stale numbers.
+     *
+     * [dateTakenMs] is **milliseconds** since epoch; [dateModifiedSec] is
+     * **seconds** since epoch — MediaStore's own mixed convention, the same
+     * one documented at length on [applySourceDates] below. Callers must not
+     * mix the two up when rendering or comparing them.
+     *
+     * [width]/[height] and [dateTakenMs] may be 0 if MediaStore never
+     * populated them for this row (some OEM cameras, some non-camera
+     * sources); callers should treat 0 as "unknown", not literally zero.
+     */
+    data class PhotoDetails(
+        val mediaStoreId: Long,
+        val displayName: String,
+        val sizeBytes: Long,
+        val width: Int,
+        val height: Int,
+        /** Milliseconds since epoch. */
+        val dateTakenMs: Long,
+        /** Seconds since epoch — NOT milliseconds. */
+        val dateModifiedSec: Long,
+        val relativePath: String?,
+        val mimeType: String?
+    )
+
+    /**
+     * Look up one photo's full metadata by its MediaStore id. Returns null
+     * when the row is gone — the source was deleted or moved outside the app
+     * since it was indexed — so callers can show "details unavailable"
+     * instead of stale or blank fields.
+     */
+    suspend fun queryPhotoDetails(mediaStoreId: Long): PhotoDetails? = withContext(Dispatchers.IO) {
+        // RELATIVE_PATH only exists from API 29 (Q). minSdk here is 26, and
+        // MediaStore rejects an unknown column in the projection by throwing
+        // rather than by returning it empty — so on API 26-28 including it
+        // unconditionally would turn every metadata lookup into a crash. Ask
+        // for it only where it exists, and read it by index-or-absent below.
+        val projection = buildList {
+            add(MediaStore.Images.Media._ID)
+            add(MediaStore.Images.Media.DISPLAY_NAME)
+            add(MediaStore.Images.Media.SIZE)
+            add(MediaStore.Images.Media.WIDTH)
+            add(MediaStore.Images.Media.HEIGHT)
+            add(MediaStore.Images.Media.DATE_TAKEN)
+            add(MediaStore.Images.Media.DATE_MODIFIED)
+            add(MediaStore.Images.Media.MIME_TYPE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.Images.Media.RELATIVE_PATH)
+            }
+        }.toTypedArray()
+
+        context.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            "${MediaStore.Images.Media._ID} = ?",
+            arrayOf(mediaStoreId.toString()),
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@withContext null
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+            val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+            val takenCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val modCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
+            // Not *OrThrow: absent by design below API 29 (see projection above).
+            val pathCol = cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
+            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+            PhotoDetails(
+                mediaStoreId = mediaStoreId,
+                displayName = cursor.getString(nameCol) ?: "",
+                sizeBytes = cursor.getLong(sizeCol),
+                width = cursor.getInt(widthCol),
+                height = cursor.getInt(heightCol),
+                // DATE_TAKEN unit: milliseconds since epoch.
+                dateTakenMs = cursor.getLong(takenCol),
+                // DATE_MODIFIED unit: seconds since epoch (NOT milliseconds).
+                dateModifiedSec = cursor.getLong(modCol),
+                relativePath = if (pathCol >= 0) cursor.getString(pathCol) else null,
+                mimeType = cursor.getString(mimeCol)
+            )
+        }
+    }
+
+    /**
+     * Sum of [MediaStore.Images.Media.SIZE] across [mediaStoreIds] — an
+     * album's total footprint in bytes. Reads only the SIZE column and chunks
+     * under SQLite's 999-bind-variable limit the same way [querySourceMetadata]
+     * does, so a large album costs a handful of queries rather than one per
+     * photo. IDs whose source row is gone are simply absent from the cursor
+     * and contribute nothing, rather than failing the whole sum.
+     */
+    suspend fun queryTotalSizeBytes(mediaStoreIds: List<Long>): Long = withContext(Dispatchers.IO) {
+        if (mediaStoreIds.isEmpty()) return@withContext 0L
+        var total = 0L
+        mediaStoreIds.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media.SIZE),
+                "${MediaStore.Images.Media._ID} IN ($placeholders)",
+                chunk.map { it.toString() }.toTypedArray(),
+                null
+            )?.use { cursor ->
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                while (cursor.moveToNext()) {
+                    total += cursor.getLong(sizeCol)
+                }
+            }
+        }
+        total
     }
 
     /**
