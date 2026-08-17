@@ -136,3 +136,46 @@ fix, so a regression back toward the old behaviour now fails the build instead
 of passing quietly. The fence stays well above the measured figure on purpose:
 it exists to catch an algorithmic regression, not to police runner variance —
 note the 232 vs 569 ms spread between the two variants in a single run.
+
+### `refineAssignments` (D18)
+
+| Scale (faces) | Clusters | Faces moved | Converged on 2nd pass | Centroid-table reads | Total (ms) |
+|---|---|---|---|---|---|
+| 5 000 | 200 | 250 / 250 planted | yes (0 moved) | 1 | **1 481 / 1 546** |
+
+The refinement pass is inherently O(iterations × faces × clusters) cosine
+comparisons, and `ReclusterUseCase` runs it *inside the recluster's single Room
+write transaction* — so its cost is a transaction held open, not just time.
+What keeps that acceptable is that all of the work is in-memory float math off
+**one** face read and **one** centroid read; the hard assertion is the read
+count, exactly as for `assign` and `mergeClose`. Wall-clock is printed and
+fenced loosely (60 s) rather than asserted tightly: at this scale the pass is
+genuinely a few hundred million multiplies, and the fence exists to catch an
+algorithmic regression, not runner variance.
+
+**This benchmark initially proved nothing, and the fix is worth recording.**
+Its first green run printed `movedFirstPass=0`. The synthetic identities are
+separated too cleanly by construction (`maxInterSim ≈ 0.07` against a 0.6
+threshold), so greedy `assign` already produced exactly 200 correct clusters —
+refinement had nothing to move, took the `totalMoved == 0` early return, and
+never reached the write-through code at all. Both assertions then held
+vacuously: the read count was low because barely anything executed, and
+"converges to zero moves" was trivially true because the first pass was also
+zero. A benchmark in that state is worse than none, because it reads as
+coverage.
+
+The fixture now parks every twentieth face in a different cluster before the
+pass runs — only the face rows move, so the stored centroids still describe the
+correct membership and there is an unambiguous right answer to find. That is
+the same order-dependence artifact `refineAssignments` exists to repair. With
+real work to do, all 250 strays return to their correct cluster (reachable only
+*through* the write-through path), and the second-pass zero is a genuine
+convergence result rather than a restatement of the first.
+
+The earlier `782 ms` figure was therefore a single sweep before an early
+return, not the multi-sweep cost; **1 481 / 1 546 ms** is the honest number.
+
+**Not measured:** all of the above is synthetic data on a CI runner, not a real
+photo library on a phone. Nothing here says whether the grouping is *good* —
+only that it is fast and self-consistent. The thresholds in D18/D19 remain
+reasoned rather than tuned.
