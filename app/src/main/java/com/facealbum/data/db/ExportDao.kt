@@ -115,6 +115,28 @@ interface ExportDao {
         updatedAt: Long
     )
 
+    /**
+     * Every exported file that actually landed on disk and still has a
+     * destination row, across all operations — the working set for the
+     * date-repair pass.
+     *
+     * The four states are exactly those where a destination file exists and
+     * has not since been removed: a copy that verified, a duplicate that was
+     * skipped because the file was already there, and both post-consent
+     * outcomes of a move. COPY_FAILED and VERIFY_FAILED are excluded because
+     * their destination was deleted by the failure path; UNDONE and RESTORED
+     * because undo removed the destination.
+     */
+    @Query(
+        """
+        SELECT * FROM export_items
+        WHERE destUri IS NOT NULL
+          AND state IN ('VERIFIED', 'SKIPPED_DUPLICATE', 'SOURCE_DELETED', 'DELETE_DENIED')
+        ORDER BY id
+        """
+    )
+    suspend fun itemsWithLandedDestination(): List<ExportItemEntity>
+
     @Query("DELETE FROM export_operations")
     suspend fun clearOperations()
 }

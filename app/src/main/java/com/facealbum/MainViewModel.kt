@@ -13,9 +13,11 @@ import com.facealbum.data.db.PhotoEntity
 import com.facealbum.data.db.findByIdsChunked
 import com.facealbum.data.prefs.ThemePreference
 import com.facealbum.data.prefs.UserPreferences
+import com.facealbum.domain.ExportDateRepairUseCase
 import com.facealbum.domain.FaceClusterer
 import com.facealbum.work.FaceIndexWorker
 import com.facealbum.work.ReclusterWorker
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -263,6 +265,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun recluster() {
         ReclusterWorker.enqueue(getApplication())
+    }
+
+    /**
+     * Outcome of the last export date-repair run, or null if it has not been
+     * run this session. Rendered as the Settings row's subtitle so the result
+     * is visible without a dialog.
+     */
+    private val _exportDateRepair = MutableStateFlow<ExportDateRepairUseCase.Result?>(null)
+    val exportDateRepair: StateFlow<ExportDateRepairUseCase.Result?> =
+        _exportDateRepair.asStateFlow()
+
+    private var repairJob: Job? = null
+
+    /**
+     * Rewrites the capture dates on albums exported before that bug was
+     * fixed. Touches only app-owned rows inside Pictures/FaceAlbums, never
+     * image bytes and never a source photo, and is idempotent — an album
+     * already carrying the right dates is counted and skipped.
+     */
+    fun repairExportDates() {
+        // Guard against a second tap while the first pass is still walking
+        // the export log; the work is idempotent but a concurrent run would
+        // double-count into the tallies the UI shows.
+        if (repairJob?.isActive == true) return
+        repairJob = viewModelScope.launch {
+            val result = ExportDateRepairUseCase(db, photoRepository).run()
+            _exportDateRepair.value = result
+        }
     }
 
     fun loadCluster(clusterId: Long) {

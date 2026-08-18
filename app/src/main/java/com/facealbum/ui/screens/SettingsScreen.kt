@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
@@ -37,6 +38,8 @@ fun SettingsScreen(
     onCommitThreshold: () -> Unit,
     onRecluster: () -> Unit,
     onRescanAll: () -> Unit,
+    onRepairExportDates: () -> Unit,
+    repairExportDatesLabel: String?,
     onDeleteIndex: () -> Unit,
     onBack: () -> Unit,
     themePreference: com.facealbum.data.prefs.ThemePreference,
@@ -103,6 +106,15 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_rescan_all),
                 subtitle = stringResource(R.string.settings_rescan_all_body),
                 onClick = onRescanAll
+            )
+            SettingRow(
+                icon = Icons.Outlined.EditCalendar,
+                title = stringResource(R.string.settings_repair_dates),
+                // Shows the outcome of the last run in place of the static
+                // description, so the result is visible without a dialog.
+                subtitle = repairExportDatesLabel
+                    ?: stringResource(R.string.settings_repair_dates_body),
+                onClick = onRepairExportDates
             )
             SettingRow(
                 icon = Icons.Outlined.DeleteOutline,

@@ -6,9 +6,11 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface
 import com.facealbum.model.PhotoInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 import java.io.IOException
 import java.security.MessageDigest
 
@@ -657,7 +659,7 @@ class PhotoRepository(private val context: Context) {
      * that column (e.g. a non-MediaStore content:// source) or the value is
      * absent.
      */
-    private data class SourceDates(val dateTakenMs: Long?, val dateModifiedSec: Long?)
+    data class SourceDates(val dateTakenMs: Long?, val dateModifiedSec: Long?)
 
     /**
      * Read a source's DATE_TAKEN/DATE_MODIFIED straight off [uri] so a copy
@@ -724,6 +726,58 @@ class PhotoRepository(private val context: Context) {
             values.put(MediaStore.Images.Media.DATE_MODIFIED, dateModifiedSec)
         }
     }
+
+    /**
+     * Public read of a row's timestamps, for the export date-repair pass.
+     * Same mixed units as [SourceDates]: milliseconds for dateTaken, seconds
+     * for dateModified.
+     */
+    suspend fun queryDates(uri: Uri): SourceDates = withContext(Dispatchers.IO) {
+        querySourceDates(uri)
+    }
+
+    /**
+     * Capture time parsed from the file's own EXIF, in milliseconds since
+     * epoch, or null if the bytes carry no usable DateTimeOriginal.
+     *
+     * This is the fallback the repair pass needs when the *source* row is
+     * gone (a move export deleted it) and MediaStore therefore has nothing
+     * left to copy the date from. The exported bytes are byte-for-byte
+     * identical to the original, EXIF included, so the truth is still in the
+     * file even when it is no longer in the database.
+     *
+     * Delegates parsing to ExifInterface.getDateTimeOriginal(), which already
+     * handles the "yyyy:MM:dd HH:mm:ss" format and the sub-second/offset tags
+     * that go with it — worth not reimplementing.
+     */
+    suspend fun readExifDateTakenMs(uri: Uri): Long? = withContext(Dispatchers.IO) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ExifInterface(stream).dateTimeOriginal
+            }
+        } catch (e: IOException) {
+            // An unreadable or non-EXIF file is an ordinary outcome here, not
+            // a failure worth propagating — the caller reports it as
+            // unrepairable and moves on.
+            Timber.w(e, "Could not read EXIF for date repair")
+            null
+        }
+    }
+
+    /**
+     * Rewrite an app-owned destination row's timestamps. Returns true if a row
+     * was actually updated.
+     *
+     * Only ever called on files this app created inside Pictures/FaceAlbums,
+     * so no consent dialog is involved. Nothing is written to the file itself
+     * — this repairs the MediaStore row, which is where the bug always was.
+     */
+    suspend fun updateMediaDates(uri: Uri, dates: SourceDates): Boolean =
+        withContext(Dispatchers.IO) {
+            val values = ContentValues().apply { applySourceDates(this, dates) }
+            if (values.size() == 0) return@withContext false
+            context.contentResolver.update(uri, values, null, null) > 0
+        }
 
     private fun deriveMimeTypeFromFileName(fileName: String): String {
         return when (fileName.substringAfterLast('.', "").lowercase()) {

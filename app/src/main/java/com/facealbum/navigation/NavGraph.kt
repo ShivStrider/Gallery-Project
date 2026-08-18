@@ -274,6 +274,7 @@ fun NavGraph(
         }
 
         composable(Screen.Settings.route) {
+            val repairResult by viewModel.exportDateRepair.collectAsState()
             SettingsScreen(
                 minClusterSize = minClusterSize,
                 onMinClusterSizeChange = viewModel::setMinClusterSize,
@@ -284,6 +285,25 @@ fun NavGraph(
                 onCommitThreshold = viewModel::commitAssignThreshold,
                 onRecluster = viewModel::recluster,
                 onRescanAll = { viewModel.startIndex(forceFullRescan = true) },
+                onRepairExportDates = viewModel::repairExportDates,
+                repairExportDatesLabel = repairResult?.let { r ->
+                    when {
+                        r.isEmpty -> stringResource(R.string.settings_repair_dates_none)
+                        r.unrepairable + r.failed > 0 -> stringResource(
+                            R.string.settings_repair_dates_done_with_skips,
+                            r.repaired,
+                            r.examined,
+                            r.alreadyCorrect,
+                            r.unrepairable + r.failed
+                        )
+                        else -> stringResource(
+                            R.string.settings_repair_dates_done,
+                            r.repaired,
+                            r.examined,
+                            r.alreadyCorrect
+                        )
+                    }
+                },
                 onDeleteIndex = { viewModel.clearIndex() },
                 onBack = { navController.popBackStack() },
                 themePreference = themePreference,
