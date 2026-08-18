@@ -15,8 +15,23 @@ on:
 # Grouping by commit SHA collapses both events into a single run: the two
 # events yield the same SHA, so the later one supersedes the earlier instead of
 # competing with it. Also halves CI minutes on every push to a branch with a PR.
+#
+# The trailing default-branch discriminator exists because SHA alone was too
+# coarse. Fast-forwarding a verified branch onto main pushes the *same commit*
+# to a second ref, which lands in the same group and cancels a run — observed
+# on f5469f8, where main's run was killed by the branch's. The commit was
+# genuinely verified by the sibling run, but main was left showing a cancelled
+# check with no green anywhere on the default branch, which is exactly the
+# ambiguous state this concurrency block was added to prevent.
+#
+# Splitting main into its own group fixes that without losing the original
+# dedup: a `pull_request` event's ref is refs/pull/N/merge and its sibling
+# `push` is refs/heads/<branch>, so both still evaluate to 'other' and still
+# collapse together.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha
+    }}-${{ github.ref == 'refs/heads/main' && 'main' || 'other' }}
   cancel-in-progress: true
 
 jobs:
