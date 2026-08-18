@@ -170,7 +170,6 @@
     <string name="settings_rescan_all_body">Re-process every photo from scratch.</string>
     <string name="settings_repair_dates">Fix dates on exported albums</string>
     <string name="settings_repair_dates_body">Albums exported before the date fix show today\'s date in your gallery. This restores the original capture dates. Photo files are not changed.</string>
-    <string name="settings_repair_dates_running">Checking exported albums…</string>
     <string name="settings_repair_dates_none">No exported albums to check.</string>
     <string name="settings_repair_dates_done">Fixed %1$d of %2$d. %3$d were already correct.</string>
     <string name="settings_repair_dates_done_with_skips">Fixed %1$d of %2$d. %3$d already correct, %4$d could not be recovered.</string>

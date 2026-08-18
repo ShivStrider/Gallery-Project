@@ -115,6 +115,15 @@ android {
         }
     }
 
+    lint {
+        // Print the report to stdout as well as HTML. Without this a lint
+        // failure shows only "Execution failed for task ':app:lint'" and the
+        // findings live solely in an artifact you have to download — which
+        // made a one-line dead-resource failure cost a full CI round-trip to
+        // identify. The CI job greps this text out of the log instead.
+        textReport = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

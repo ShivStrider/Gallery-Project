@@ -130,8 +130,16 @@ jobs:
                 cat "$f"
               done
 
+      # Tee'd for the same reason as the unit tests: a lint failure otherwise
+      # reports only "Execution failed for task ':app:lint'", with the actual
+      # findings reachable only by downloading the HTML artifact. Combined
+      # with `lint { textReport = true }` in app/build.gradle.kts, the
+      # findings land in this log and the final summary step echoes them back
+      # out where a short log tail can reach them.
       - name: Run lint
-        run: ./gradlew lint --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew lint --stacktrace 2>&1 | tee /tmp/gradle-lint.log
 
       # Assembling the debug APK and compiling the androidTest source set are
       # the only CI-side proof that the app and its instrumentation tests
@@ -218,6 +226,16 @@ jobs:
             | xargs -r grep -ho '\[\(assign\|mergeClose\|refine\|generator\)\].*' \
             | sort -u \
             || echo "No benchmark output found."
+
+          # Lint findings, when there are any. Error-severity lint fails the
+          # build, and without this the reason never reaches the log tail.
+          if [ -f /tmp/gradle-lint.log ]; then
+            if grep -qE '^[^ ]+: (Error|Warning):|[0-9]+ errors?, [0-9]+ warnings?' /tmp/gradle-lint.log; then
+              echo "=== Lint findings ==="
+              grep -E '^[^ ]+: (Error|Warning):|[0-9]+ errors?, [0-9]+ warnings?' \
+                /tmp/gradle-lint.log | head -40
+            fi
+          fi
 
           # suites=0 means the tests never ran — almost always a compile error,
           # not a test failure. Say so loudly and surface the actual compiler
