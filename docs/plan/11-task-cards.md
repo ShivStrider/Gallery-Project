@@ -7,7 +7,46 @@ Every unit follows: Opus inspects + writes the contract (referencing these docs)
 Standard commands (all cards, via CI): `./gradlew test lint assembleDebug assembleDebugAndroidTest`.
 Standard failure rule (all cards): red CI → fix forward on the branch before starting the next card; never claim a pass without the run.
 
-Completed: **P0.1–P0.5** (audit doc, Firebase removal, signing gate, androidTest import + CI assemble) and **P1.1–P1.8** (docs 01–11) — see git history.
+## Status
+
+Verified against the source, not against memory of what was intended.
+
+| Phase | State |
+|---|---|
+| P0 audit / Firebase removal / signing gate / CI assemble | **done** |
+| P1 docs 01–11 | **done** (and kept current — this pass) |
+| P2 partial photo access, notifications, reconcile, dead code | **done** (`util/PhotoAccess.kt`, `FaceIndexReconcileTest`) |
+| P3 inference outside the write transaction, lazy model init, unit tests | **done** |
+| P4 centroid cache, restart-free `mergeClose`, review-needed band, id chunking, benchmarks | **done** (`ReviewNeededScreen`, `ClusteringBenchmarkTest`, `PhotoDaoChunkingTest`) |
+| P5 ClusterDetail split, export preview, viewer zoom-state keys | **done** (`ui/screens/clusterdetail/*`, `ExportPreviewSheet`) |
+| P6 export log, planner/executor/consent/undo, worker, destructive suite | **done**; Move remains flag-gated by design |
+| P7 benchmarks + measured numbers | **partial** — cost model recorded in `07-performance-plan.md`; the 10 GB soak test and memory-ceiling measurement need a device |
+| P8 `allowBackup=false`, no INTERNET, log-identifier guard, compliance rewrite | **done**; **LICENSE file still missing** |
+| P9 model asset bundled + checksum-pinned | **partial** — no `assembleRelease` CI job, and detekt was reverted (see D15 correction) |
+
+### Unplanned work, from user-reported defects
+
+None of this was in the original phase plan; all of it came from using the app.
+
+| Item | State |
+|---|---|
+| Faces aligned before embedding (`util/FaceAligner`) — the actual cause of bad grouping | done |
+| Export copies keep their original capture date | done |
+| Order-independent `refineAssignments` + anti-chaining merge guard | done |
+| Viewer horizontal swipe (gesture arbitration rewrite) | done, **unverified on hardware** |
+| Photo metadata sheet, per-photo and album sizes | done |
+| Repair pass for albums exported before the date fix | done |
+| minSdk 26 → 29, because export could never work below 29 | done (D21) |
+
+### Still open
+
+- LICENSE file (P8.2 listed it; never added).
+- `assembleRelease` CI job with signing from secrets (P9.1).
+- Any on-device validation at all — see `docs/release/known-limitations.md`.
+- Accuracy measurement against a labelled dataset; the clustering constants in
+  D18/D19 are reasoned, not tuned.
+
+---
 
 ---
 

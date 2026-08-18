@@ -14,9 +14,11 @@ telemetry.
 - **Whole-library indexing** — scans every photo in `MediaStore`, not just the first N.
 - **Automatic face grouping** — clusters faces by similarity so each person appears as their own tile (Google-Photos-style "People" view).
 - **Tag faces** — rename a cluster once and the name sticks across rescans.
-- **Export per-person albums** — copies all photos of one person into `Pictures/FaceAlbums/<Name>/`, visible immediately in Google Photos, Files, etc.
+- **Export per-person albums** — copies all photos of one person into `Pictures/FaceAlbums/<Name>/`, visible immediately in Google Photos, Files, etc. Copies keep the original capture date, so an exported album stays where it belongs in your timeline.
 - **Incremental rescans** — subsequent scans only process photos modified since the last index pass.
 - **Manual overrides** — merge two clusters that should be one person; the merge sticks.
+- **Photo details** — per-photo file name, capture date, dimensions, size, folder and face count, from an info button in the viewer; the person screen shows the album's total size.
+- **Repair pass for older exports** — Settings → *Fix dates on exported albums* restores capture dates on albums exported before the date bug was fixed. Idempotent, touches only app-owned MediaStore rows, never image bytes.
 - **100% offline** — no internet permission, no analytics, no third-party services beyond on-device ML Kit + TFLite.
 - **Material You** — dynamic colors on Android 12+, dark theme, edge-to-edge.
 
@@ -43,24 +45,45 @@ WorkManager schedules FaceIndexWorker (foreground notification)
     ↓
 PhotoRepository.queryPhotosModifiedSince(lastIndexed)
     ↓
-For each photo (inside db.withTransaction):
+For each photo:
     BitmapLoader (downscale + EXIF rotate)
-    FaceDetectorWrapper.detectAllFaces (ML Kit, fast mode)
+    FaceDetectorWrapper.detectAllFaces
+        (ML Kit, PERFORMANCE_MODE_ACCURATE + LANDMARK_MODE_ALL —
+         landmarks are required by the aligner below)
     For each face:
-        FacePreprocessor (margin crop + 112×112 + normalize to [-1, 1])
+        FaceAligner (5-point similarity transform onto the ArcFace
+                     canonical 112×112 layout; falls back to
+                     FacePreprocessor's bbox crop if landmarks are missing)
+        normalize (x - 127.5) / 128, i.e. [-0.99609375, 0.99609375], RGB
         FaceEmbedder.getEmbedding (TFLite → 128-D L2-normalized vector)
+    ↓
+    One short db.withTransaction per photo, AFTER inference —
+    TFLite never runs inside a write transaction
+    ↓
         FaceClusterer.assign:
             best cluster by cosine similarity ≥ assign threshold → join + update centroid
             else → open a new singleton cluster
     ↓
 End of batch: FaceClusterer.mergeClose()  // catches ordering effects
 ClusterDao.deleteEmpty()
+
+Full recluster additionally runs FaceClusterer.refineAssignments() —
+Lloyd-style sweeps that re-check every face against the final centroids,
+correcting the order dependence a single greedy pass leaves behind.
     ↓
 PeopleScreen observes ClusterDao.summariesAtLeast(minSize) via Flow
 ClusterDetailScreen lets you rename / merge / export
 ClusterAlbumExportUseCase copies photos via PhotoRepository.copyToAlbumWithResult
     → Pictures/FaceAlbums/<Name>/
 ```
+
+**Why alignment matters.** MobileFaceNet was trained and evaluated exclusively
+on 5-point-aligned crops. Feeding it raw bounding-box crops made the embeddings
+encode pose and framing about as strongly as identity, which is what produced
+the original "everyone is in everyone's group" behaviour. `FaceAligner` solves a
+closed-form least-squares *similarity* transform (uniform scale + rotation +
+translation) — deliberately not `Matrix.setPolyToPoly`, which fits a perspective
+warp and would distort the face.
 
 ### Project layout
 
@@ -194,11 +217,31 @@ Schema files are exported under `app/schemas/` for migration safety.
 ./gradlew test
 ```
 
-- `FaceClustererTest` — Robolectric + in-memory Room. Covers assign / dissimilar-split / `mergeClose` / `mergeUserRequested`.
-- `PhotoRepositoryTest` — MockK over the MediaStore copy pipeline; verifies mime detection, source-open failure, finalize failure, rollback, unique naming.
-- `SimilarityMatcherTest`, `FaceRecognitionConfigTest` — pure-JVM smoke tests.
+24 suites / 171 tests at the time of writing, all green in CI. The ones worth
+knowing about:
 
-The full end-to-end loop has to be exercised on a real device — see *Release acceptance* below.
+- `FaceClustererTest` — Robolectric + in-memory Room. assign, dissimilar-split,
+  `mergeClose`, `mergeUserRequested`, refinement (including that the hysteresis
+  margin stops a boundary face flapping), and the anti-chaining merge guard.
+- `PhotoRepositoryTest` — MockK over the MediaStore pipeline: mime detection,
+  source-open and finalize failures, rollback, unique naming, the
+  `DATE_TAKEN`-is-millis / `DATE_MODIFIED`-is-seconds split, and chunked size
+  reads.
+- `DestructiveExportSafetyTest` — the suite that gates Move mode. Unselected
+  files never enter a delete batch; verify-failure keeps the source and removes
+  the destination; kill-and-resume mid-copy neither loses nor duplicates.
+- `ExportDateRepairUseCaseTest` — the repair pass: recovery from a surviving
+  source, the EXIF fallback when the source is gone, idempotence, and that it
+  declines to guess rather than writing a plausible-but-wrong date.
+- `ClusteringBenchmarkTest` — cost model at 100 / 1 000 / 5 000 faces. Asserts
+  *read counts*, not wall-clock, so an algorithmic regression cannot hide behind
+  a fast runner. Numbers land in `docs/plan/07-performance-plan.md`.
+- `FaceAlbumDatabaseMigrationTest` — every migration path against the committed
+  schemas in `app/schemas/`.
+
+The full end-to-end loop has to be exercised on a real device — see *Release
+acceptance* below. **Nothing in this repository has been validated on physical
+hardware**; CI is the only verifier so far.
 
 ## Release build & distribution
 
@@ -288,13 +331,29 @@ See [`docs/release/known-limitations.md`](./docs/release/known-limitations.md) f
 
 Next on the list (not yet implemented):
 - [ ] On-device LLM-powered "describe this person" caption (experimental).
-- [ ] Move/delete export (see `docs/release/known-limitations.md` — feature-flagged off pending the destructive-operation test suite).
+- [ ] Move/delete export. The destructive-operation suite that was originally
+      the exit criterion **is green in CI** — but it runs against a simulated
+      MediaStore, so the remaining blockers are on-device verification with
+      synthetic photos and an explicit product sign-off, not a failing test.
+      See `docs/release/known-limitations.md`.
+- [ ] A LICENSE file (listed in the plan, never added).
+- [ ] `assembleRelease` CI job with signing from secrets.
+- [ ] Accuracy measurement against a labelled dataset — grouping quality on a
+      real library is still unknown, and the clustering constants are reasoned
+      rather than tuned.
 
 Already shipped, despite once being roadmap items (kept here so this list stays
 honest instead of re-drifting): moving a face to another person via *Move to
 person…*, quality-based cover-face auto-upgrade, periodic background
 re-indexing (`FaceIndexWorker`, every 12h), multi-photo selection + partial
 export in cluster detail, and a Light/System/Dark theme toggle in Settings.
+
+More recently, from defects found by using the app rather than from the plan:
+five-point face alignment before embedding (the actual cause of poor grouping),
+capture-date fidelity on exported copies plus a repair pass for older exports,
+order-independent cluster refinement with an anti-chaining merge guard,
+horizontal swipe in the photo viewer, and the photo-details sheet with per-photo
+and per-album sizes.
 
 ## Acknowledgments
 

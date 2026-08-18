@@ -5,6 +5,25 @@ this release. Verified against the current source — file references are given
 so this doesn't drift the way `docs/release/qa-matrix.md`'s old seed-selection
 section did.
 
+## Nothing here has been validated on a physical device
+
+CI is the only verifier this project has had so far: JVM/Robolectric tests,
+lint, an assembled debug APK, and a compile check of the instrumentation tests.
+No emulator step, and no run on real hardware. Everything below — and every
+"green" claim elsewhere in these docs — means "passes in CI", not "works on a
+phone".
+
+Two areas are especially exposed by that gap, because neither is meaningfully
+testable on the JVM:
+
+- **Viewer gestures.** `ImageViewerScreen`'s pointer arbitration decides per
+  gesture whether the pager, the zoom handler, or drag-to-dismiss owns the
+  touch. It rests on Compose's documented pointer-pass ordering, reasoned
+  through rather than observed.
+- **MediaStore semantics.** Consent dialogs, OEM MediaStore behaviour, and how
+  a given gallery app reacts to a rewritten row are all device-side facts that
+  a mocked `ContentResolver` cannot establish.
+
 ## Move/delete export is disabled
 
 `ExportFeature.MOVE_ENABLED` (`app/src/main/java/com/facealbum/config/ExportFeature.kt`)
@@ -32,7 +51,7 @@ gates Move on `Build.VERSION.SDK_INT >= Build.VERSION_CODES.R`, because
 `MediaStore.createDeleteRequest()` — the only way to delete media this app
 doesn't own without holding broad storage permissions — was introduced in
 API 30. On API 29, only Copy is available; a Move request on that
-versions is rejected before any file is touched
+version is rejected before any file is touched
 (`ExportPlanner.commit()` returns `CommitResult.MoveUnsupported`, surfaced as
 the `snack_move_unsupported` string). This is independent of the
 `MOVE_ENABLED` flag above — both gates must pass before Move can run.
@@ -69,6 +88,22 @@ failure modes follow directly from that:
   across lighting/angle/age keeps similarity under the assign threshold).
 - Two different people who look similar can be **merged** into one group.
 
+Two mitigations exist, and both carry constants that are **reasoned rather than
+tuned** — nothing here has been calibrated against a real photo library:
+
+- `refineAssignments()` re-checks every face against the final centroids after
+  clustering settles, correcting the order dependence a single greedy pass
+  leaves behind. Runs on full recluster only, not on incremental scans.
+- An anti-chaining guard requires an extra `0.05` of similarity to merge once
+  either cluster has 8 or more faces, so a large group cannot absorb a
+  neighbour through a drifted centroid.
+
+The guard deliberately errs toward **splitting**: it accepts some risk of one
+person appearing as two groups in order to lower the risk of two people
+collapsing into one. If duplicates of the same person start appearing,
+`CLUSTER_MERGE_CHAIN_GUARD_SIZE` and `CLUSTER_MERGE_CHAIN_GUARD_MARGIN` in
+`FaceRecognitionConfig.kt` are the dials.
+
 Both thresholds are user-adjustable at runtime (Settings → *Grouping
 strictness*, backed by `UserPreferences.assignThreshold` /
 `.mergeThreshold`), and `settings_recluster` lets a user re-run clustering
@@ -82,6 +117,28 @@ and reassigns its faces — there is no stored record of the merge and no way to
 split it back apart from the UI (`confirm_merge_body` warns "This can't be
 undone from here," and it means it literally: it's not undo-able, not just
 unexposed).
+
+## Repairing dates on old exports cannot always recover them
+
+Albums exported before the capture-date fix carry the export moment in their
+MediaStore rows rather than the original capture time. Settings → *Fix dates on
+exported albums* (`ExportDateRepairUseCase.kt`) repairs them. The image files
+were never damaged — bytes are copied verbatim, EXIF included — so only the
+database row is rewritten, never a single byte of image data. The pass is
+idempotent, touches only rows this app created under `Pictures/FaceAlbums/`,
+and involves no deletion or consent dialog.
+
+It recovers the date from the original's MediaStore row when that row still
+exists, and otherwise from EXIF inside the exported copy. **One case is
+genuinely unrecoverable:** a file with no usable EXIF capture time (a
+screenshot, a heavily re-encoded image) whose original has also been deleted by
+a Move. There is nothing left on the device that knows when it was taken.
+
+Those files are counted as "could not be recovered" and left exactly as they
+are. This is deliberate — a plausible-looking wrong date is harder for you to
+notice later than one that is obviously today's, so the pass declines to guess.
+Since Move is currently disabled, in practice this case only arises for albums
+whose originals you deleted yourself.
 
 ## Images only — no video
 
