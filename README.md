@@ -34,7 +34,7 @@ telemetry.
 | Background | WorkManager 2.9 (foreground service, `dataSync` type) |
 | Image loading | Coil |
 | Logging / crash | Timber (local-only, debug builds) |
-| Min / target SDK | API 26 (Android 8.0) / API 35 (Android 15) |
+| Min / target SDK | API 29 (Android 10) / API 35 (Android 15) |
 
 ### Pipeline
 
@@ -117,7 +117,7 @@ app/src/main/java/com/facealbum/
 ### Prerequisites
 - Android Studio Hedgehog (2023.1.1) or newer
 - Android SDK 35
-- Physical device on API 26+ (emulators work but are slow; ML Kit + TFLite + photo I/O all benefit from real hardware)
+- Physical device on API 29+ (emulators work but are slow; ML Kit + TFLite + photo I/O all benefit from real hardware)
 
 ### 1. Clone
 

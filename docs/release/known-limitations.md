@@ -31,7 +31,7 @@ sign-off, not just a green test run.
 gates Move on `Build.VERSION.SDK_INT >= Build.VERSION_CODES.R`, because
 `MediaStore.createDeleteRequest()` — the only way to delete media this app
 doesn't own without holding broad storage permissions — was introduced in
-API 30. On API 26–29, only Copy is available; a Move request on those
+API 30. On API 29, only Copy is available; a Move request on that
 versions is rejected before any file is touched
 (`ExportPlanner.commit()` returns `CommitResult.MoveUnsupported`, surfaced as
 the `snack_move_unsupported` string). This is independent of the

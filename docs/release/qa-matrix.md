@@ -3,7 +3,7 @@
 ## Mandatory Scenarios
 
 ### 1) Permission Flows
-- Validate runtime permission behavior on **API 26–32** (legacy/storage/photo access pathways).
+- Validate runtime permission behavior on **API 29–32** (scoped-storage/photo access pathways).
 - Validate runtime permission behavior on **API 33+** (new media permission model and related prompts).
 - Confirm first-run, deny, deny permanently, and grant-after-deny paths.
 
@@ -52,7 +52,7 @@ grant" the same as "deleted", so a narrowed selection actively removes rows.
 safety suite validates against a *simulated* MediaStore, so every row below is
 testing something CI has never actually observed. Run these on **synthetic
 throwaway photos only — never on a real photo library.**
-- Move requires **API 30+**; on API 26–29 the Move option must not be offered,
+- Move requires **API 30+**; on API 29 the Move option must not be offered,
   and a Move request must be refused before any file is touched.
 - Happy path: originals disappear only *after* the system consent dialog is
   accepted, and only files that were copied and checksum-verified.

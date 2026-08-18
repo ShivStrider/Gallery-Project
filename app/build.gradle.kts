@@ -62,7 +62,15 @@ android {
 
     defaultConfig {
         applicationId = "com.facealbum"
-        minSdk = 26
+        // 29 (Q), not 26. Export writes RELATIVE_PATH and IS_PENDING into
+        // MediaStore, and both columns only exist from API 29 — MediaStore
+        // rejects an unknown column by throwing, so on API 26-28 exporting an
+        // album failed outright. There is no fix that keeps this app's
+        // privacy posture: writing into Pictures/ before scoped storage needs
+        // WRITE_EXTERNAL_STORAGE, which FaceAlbum deliberately never requests.
+        // Claiming 26 while the core feature could not work there was the
+        // actual bug; supporting 29+ honestly is the fix.
+        minSdk = 29
         targetSdk = 35
         // Keep versionCode monotonically increasing for every Play upload.
         versionCode = 1

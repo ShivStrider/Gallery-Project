@@ -13,7 +13,7 @@ edit-compile-run cycle.
 | Android Studio Hedgehog or newer (2023.1.1+) | https://developer.android.com/studio | Builds the project. |
 | Android SDK Platform 35 + Build-Tools 35 | Installed via Android Studio's SDK Manager | Matches `compileSdk = 35` / `targetSdk = 35` in `app/build.gradle.kts`. |
 | JDK 17 (bundled with Android Studio) | Already there if you installed AS | Required by AGP 8.2. |
-| A phone on Android 8.0 (API 26) or newer | Your pocket | App's min SDK. |
+| A phone on Android 10 (API 29) or newer | Your pocket | App's min SDK. |
 | ~~A MobileFaceNet `.tflite` weight~~ | **Now bundled** — see §3 | The face-embedding brain. Committed to the repo; nothing to source. |
 
 Emulators technically work but are slow; the index loop touches MediaStore, ML

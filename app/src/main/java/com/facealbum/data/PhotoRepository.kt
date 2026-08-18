@@ -4,7 +4,6 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.facealbum.model.PhotoInfo
@@ -483,28 +482,23 @@ class PhotoRepository(private val context: Context) {
      * instead of stale or blank fields.
      */
     suspend fun queryPhotoDetails(mediaStoreId: Long): PhotoDetails? = withContext(Dispatchers.IO) {
-        // RELATIVE_PATH only exists from API 29 (Q). minSdk here is 26, and
-        // MediaStore rejects an unknown column in the projection by throwing
-        // rather than by returning it empty — so on API 26-28 including it
-        // unconditionally would turn every metadata lookup into a crash. Ask
-        // for it only where it exists, and read it by index-or-absent below.
-        val projection = buildList {
-            add(MediaStore.Images.Media._ID)
-            add(MediaStore.Images.Media.DISPLAY_NAME)
-            add(MediaStore.Images.Media.SIZE)
-            add(MediaStore.Images.Media.WIDTH)
-            add(MediaStore.Images.Media.HEIGHT)
-            add(MediaStore.Images.Media.DATE_TAKEN)
-            add(MediaStore.Images.Media.DATE_MODIFIED)
-            add(MediaStore.Images.Media.MIME_TYPE)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(MediaStore.Images.Media.RELATIVE_PATH)
-            }
-        }.toTypedArray()
-
         context.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.WIDTH,
+                MediaStore.Images.Media.HEIGHT,
+                MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.MIME_TYPE,
+                // Exists from API 29, which is now minSdk. This was previously
+                // added conditionally because minSdk was 26 and MediaStore
+                // throws on an unknown projection column; that guard is gone
+                // with the floor raised.
+                MediaStore.Images.Media.RELATIVE_PATH
+            ),
             "${MediaStore.Images.Media._ID} = ?",
             arrayOf(mediaStoreId.toString()),
             null
@@ -516,8 +510,7 @@ class PhotoRepository(private val context: Context) {
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
             val takenCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
             val modCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
-            // Not *OrThrow: absent by design below API 29 (see projection above).
-            val pathCol = cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
+            val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
             val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
             PhotoDetails(
                 mediaStoreId = mediaStoreId,
@@ -529,7 +522,7 @@ class PhotoRepository(private val context: Context) {
                 dateTakenMs = cursor.getLong(takenCol),
                 // DATE_MODIFIED unit: seconds since epoch (NOT milliseconds).
                 dateModifiedSec = cursor.getLong(modCol),
-                relativePath = if (pathCol >= 0) cursor.getString(pathCol) else null,
+                relativePath = cursor.getString(pathCol),
                 mimeType = cursor.getString(mimeCol)
             )
         }

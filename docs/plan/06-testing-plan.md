@@ -29,4 +29,4 @@ See `05-safe-export-design.md` §Destructive-operation test suite. Runs in CI as
 
 ## Manual QA
 
-`docs/release/qa-matrix.md` (updated in Phase 8 to drop the obsolete seed-photo section): API 26 / 29 / 33 / 34 / 35 devices; verify Move absent below API 30; 10 GB library soak test per `07-performance-plan.md`.
+`docs/release/qa-matrix.md` (updated in Phase 8 to drop the obsolete seed-photo section): API 29 / 33 / 34 / 35 devices; verify Move absent below API 30; 10 GB library soak test per `07-performance-plan.md`.
