@@ -13,6 +13,10 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.IOException
 import java.security.MessageDigest
+import java.text.ParseException
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Repository for accessing device photos via MediaStore.
@@ -753,13 +757,47 @@ class PhotoRepository(private val context: Context) {
     suspend fun readExifDateTakenMs(uri: Uri): Long? = withContext(Dispatchers.IO) {
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
-                ExifInterface(stream).dateTimeOriginal
+                val exif = ExifInterface(stream)
+                val stamp = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                    ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+                    ?: return@use null
+                parseExifTimestamp(stamp, exif.getAttribute(OFFSET_TIME_ORIGINAL))
             }
         } catch (e: IOException) {
             // An unreadable or non-EXIF file is an ordinary outcome here, not
             // a failure worth propagating — the caller reports it as
             // unrepairable and moves on.
             Timber.w(e, "Could not read EXIF for date repair")
+            null
+        }
+    }
+
+    /**
+     * Parse an EXIF `yyyy:MM:dd HH:mm:ss` stamp to milliseconds since epoch.
+     *
+     * Written out rather than calling `ExifInterface.getDateTimeOriginal()`,
+     * which is annotated `@RestrictTo(LIBRARY_GROUP)` in exifinterface 1.3.7 —
+     * lint rejects it with `RestrictedApi`, correctly, since it is not public
+     * API and may change without notice.
+     *
+     * EXIF DateTimeOriginal is local wall-clock time with no zone attached.
+     * When the file carries OffsetTimeOriginal we honour it; otherwise the
+     * device's current zone is the right default, because that is the same
+     * assumption the platform media scanner makes when it populates
+     * DATE_TAKEN — and matching the scanner is the whole point of this repair.
+     */
+    private fun parseExifTimestamp(stamp: String, offset: String?): Long? {
+        val format = SimpleDateFormat(EXIF_DATE_PATTERN, Locale.US).apply {
+            isLenient = false
+            if (offset != null) {
+                // EXIF offsets look like "+05:30"; TimeZone wants "GMT+05:30".
+                timeZone = TimeZone.getTimeZone("GMT$offset")
+            }
+        }
+        return try {
+            format.parse(stamp)?.time
+        } catch (e: ParseException) {
+            Timber.w(e, "Unparseable EXIF timestamp during date repair")
             null
         }
     }
@@ -800,6 +838,16 @@ class PhotoRepository(private val context: Context) {
 
         /** MediaStore.DATE_MODIFIED is seconds; MediaStore.DATE_TAKEN is milliseconds. */
         const val MILLIS_PER_SECOND = 1000L
+
+        /** EXIF DateTimeOriginal's fixed format. Colons in the date half are not a typo. */
+        private const val EXIF_DATE_PATTERN = "yyyy:MM:dd HH:mm:ss"
+
+        /**
+         * Spelled out rather than using ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+         * which does not exist in exifinterface 1.3.7. The tag name itself is
+         * fixed by the EXIF 2.31 specification, so the literal is stable.
+         */
+        private const val OFFSET_TIME_ORIGINAL = "OffsetTimeOriginal"
 
         val HEX = "0123456789abcdef".toCharArray()
     }
