@@ -46,10 +46,22 @@
     <string name="export_complete_location">Find them in Pictures › FaceAlbums › %1$s</string>
     <string name="export_complete_open_gallery">Open in gallery</string>
     <string name="export_success_icon">Success</string>
-    <string name="export_outcome_originals_deleted">%1$d originals removed from your device</string>
-    <string name="export_outcome_originals_kept">%1$d originals were kept</string>
-    <string name="export_outcome_failed">%1$d photos couldn\'t be exported</string>
-    <string name="export_outcome_restored">%1$d photos restored</string>
+    <plurals name="export_outcome_originals_deleted">
+        <item quantity="one">%1$d original removed from your device</item>
+        <item quantity="other">%1$d originals removed from your device</item>
+    </plurals>
+    <plurals name="export_outcome_originals_kept">
+        <item quantity="one">%1$d original was kept</item>
+        <item quantity="other">%1$d originals were kept</item>
+    </plurals>
+    <plurals name="export_outcome_failed">
+        <item quantity="one">%1$d photo couldn\'t be exported</item>
+        <item quantity="other">%1$d photos couldn\'t be exported</item>
+    </plurals>
+    <plurals name="export_outcome_restored">
+        <item quantity="one">%1$d photo restored</item>
+        <item quantity="other">%1$d photos restored</item>
+    </plurals>
     <string name="export_undo_copy">Undo — remove the copies</string>
     <string name="export_undo_move">Undo — put the originals back</string>
 

@@ -31,7 +31,10 @@ obj/
 .cxx/
 .externalNativeBuild/
 
-# Google Services
+# Google Services — Firebase was removed (decision log D1) and this app has no
+# INTERNET permission, so no google-services.json should ever exist here. Kept
+# ignored so an accidental re-add can't be committed.
+google-services.json
 
 # Freeline
 freeline.py
@@ -44,3 +47,43 @@ fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
 fastlane/readme.md
+
+# ---------------------------------------------------------------------------
+# Secrets and credentials
+#
+# Verified as of this commit: nothing matching these patterns is tracked, and
+# `git log --all --diff-filter=A` shows none was ever committed and later
+# removed. These patterns exist so that stays true.
+#
+# Note the signing keystore is never a file in this tree: it is materialised at
+# build time from $ANDROID_KEYSTORE_BASE64 into app/build/keystore.jks, which
+# `build/` above already ignores. Passwords come from environment variables
+# only (see app/build.gradle.kts) — never a properties file.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+*.key
+*.der
+secrets.properties
+keystore.properties
+signing.properties
+service-account*.json
+
+# Node / JS tooling. This is a pure Kotlin/Gradle project with no JS build, so
+# these should never appear — ignored defensively rather than because they do.
+node_modules/
+.expo/
+npm-debug.log*
+yarn-error.log*
+
+# Large model weights. The one model this app ships (assets/mobile_face_net.tflite,
+# ~5 MB, checksum-pinned) is deliberately committed, so *.tflite is NOT ignored.
+# .gguf is listed because the roadmap contemplates an on-device LLM caption
+# feature, and multi-gigabyte weights must never be committed by reflex.
+*.gguf
+*.onnx
+*.safetensors

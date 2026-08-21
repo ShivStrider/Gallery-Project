@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -220,8 +221,9 @@ private fun ExportOutcomeDetails(report: ExportReport) {
     ) {
         if (report.sourcesDeletedCount > 0) {
             OutcomeLine(
-                text = stringResource(
-                    R.string.export_outcome_originals_deleted,
+                text = pluralStringResource(
+                    R.plurals.export_outcome_originals_deleted,
+                    report.sourcesDeletedCount,
                     report.sourcesDeletedCount
                 ),
                 emphasis = false
@@ -229,8 +231,9 @@ private fun ExportOutcomeDetails(report: ExportReport) {
         }
         if (report.sourcesKeptCount > 0) {
             OutcomeLine(
-                text = stringResource(
-                    R.string.export_outcome_originals_kept,
+                text = pluralStringResource(
+                    R.plurals.export_outcome_originals_kept,
+                    report.sourcesKeptCount,
                     report.sourcesKeptCount
                 ),
                 emphasis = true
@@ -238,13 +241,21 @@ private fun ExportOutcomeDetails(report: ExportReport) {
         }
         if (report.failedCount > 0) {
             OutcomeLine(
-                text = stringResource(R.string.export_outcome_failed, report.failedCount),
+                text = pluralStringResource(
+                    R.plurals.export_outcome_failed,
+                    report.failedCount,
+                    report.failedCount
+                ),
                 emphasis = true
             )
         }
         if (report.restoredCount > 0) {
             OutcomeLine(
-                text = stringResource(R.string.export_outcome_restored, report.restoredCount),
+                text = pluralStringResource(
+                    R.plurals.export_outcome_restored,
+                    report.restoredCount,
+                    report.restoredCount
+                ),
                 emphasis = false
             )
         }
