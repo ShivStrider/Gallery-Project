@@ -73,6 +73,12 @@ keystore.properties
 signing.properties
 service-account*.json
 
+# MCP server configs. `claude mcp add --scope project` writes .mcp.json into
+# the repo root, and auth headers (API keys, tokens) go in it verbatim. Ignored
+# so a credential cannot be committed by an editor's "stage all".
+.mcp.json
+.mcp.local.json
+
 # Node / JS tooling. This is a pure Kotlin/Gradle project with no JS build, so
 # these should never appear — ignored defensively rather than because they do.
 node_modules/
